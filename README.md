@@ -133,6 +133,29 @@ docker run -v /path/to/config.toml:/config.toml \
            modelplex --config /config.toml --socket /socket/modelplex.socket
 ```
 
+## Roadmap
+
+### Core Features
+- [ ] **Real-time configuration updates** without restart
+- [ ] **Advanced monitoring dashboard** with metrics and alerts  
+- [ ] **Additional AI provider integrations** (Google AI, Azure OpenAI)
+- [ ] **WebSocket support** for streaming responses
+- [ ] **Load balancing** across multiple provider instances
+- [ ] **Request caching** and response optimization
+
+### MCP Enhancements
+- [ ] **MCP Pass-through Proxy** - Allow external MCP clients to connect through Modelplex
+- [ ] **Tool aggregation from multiple MCP servers** with conflict resolution
+- [ ] **MCP server implementation** for external client connections
+- [ ] **Enhanced MCP tool integration** with permission controls and namespacing
+- [ ] **MCP protocol transport options** beyond stdin/stdout
+
+### Developer Experience
+- [ ] **Plugin system** for custom providers and tools
+- [ ] **Configuration validation** and schema documentation
+- [ ] **Performance profiling** and optimization tools
+- [ ] **Integration examples** for popular frameworks and platforms
+
 ## License
 
 MIT
