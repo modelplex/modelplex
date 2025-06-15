@@ -79,8 +79,8 @@ func TestSocketServerWhenSpecified(t *testing.T) {
 	eg, _ := errgroup.WithContext(context.Background())
 	eg.Go(srv.Start)
 
-	// Wait for server to be ready by checking socket file
-	waitForSocketServerReady(t, socketPath)
+	// Wait for server to be ready
+	waitForSocketServerReady(t, srv)
 
 	// Stop server
 	srv.Stop()
@@ -173,44 +173,16 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	_ = eg.Wait() // Ignore error as we expect server to be stopped
 }
 
-// waitForHTTPServerReady waits for an HTTP server to be ready by checking its health endpoint
+// waitForHTTPServerReady waits for an HTTP server to be ready using the Ready() channel
 func waitForHTTPServerReady(t *testing.T, srv *server.Server) {
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			t.Fatal("Timeout waiting for HTTP server to be ready")
-		case <-ticker.C:
-			if addr := srv.Addr(); addr != nil {
-				resp, err := http.Get(fmt.Sprintf("http://%s/health", addr))
-				if err == nil {
-					_ = resp.Body.Close() // Ignore close error in readiness check
-					if resp.StatusCode == http.StatusOK {
-						return
-					}
-				}
-			}
-		}
+	if err := srv.WaitReady(5 * time.Second); err != nil {
+		t.Fatal("Timeout waiting for HTTP server to be ready:", err)
 	}
 }
 
-// waitForSocketServerReady waits for a Unix socket server to be ready by checking if socket file exists
-func waitForSocketServerReady(t *testing.T, socketPath string) {
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			t.Fatal("Timeout waiting for socket server to be ready")
-		case <-ticker.C:
-			if _, err := os.Stat(socketPath); err == nil {
-				return
-			}
-		}
+// waitForSocketServerReady waits for a Unix socket server to be ready using the Ready() channel
+func waitForSocketServerReady(t *testing.T, srv *server.Server) {
+	if err := srv.WaitReady(5 * time.Second); err != nil {
+		t.Fatal("Timeout waiting for socket server to be ready:", err)
 	}
 }

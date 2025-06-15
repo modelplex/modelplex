@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -42,33 +41,10 @@ func startServerWithErrgroup(t *testing.T, srv *server.Server) (cleanup func()) 
 	}
 }
 
-// waitForServerReady waits for the server to be ready by checking its health endpoint or socket
+// waitForServerReady waits for the server to be ready using the Ready() channel
 func waitForServerReady(t *testing.T, srv *server.Server) {
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			t.Fatal("Timeout waiting for server to be ready")
-		case <-ticker.C:
-			if srv.SocketPath() != "" {
-				// Unix socket server - check if socket file exists
-				if _, err := os.Stat(srv.SocketPath()); err == nil {
-					return
-				}
-			} else if addr := srv.Addr(); addr != nil {
-				// HTTP server - check health endpoint
-				resp, err := http.Get(fmt.Sprintf("http://%s/health", addr))
-				if err == nil {
-					_ = resp.Body.Close() // Ignore close error in readiness check
-					if resp.StatusCode == http.StatusOK {
-						return
-					}
-				}
-			}
-		}
+	if err := srv.WaitReady(5 * time.Second); err != nil {
+		t.Fatal("Timeout waiting for server to be ready:", err)
 	}
 }
 

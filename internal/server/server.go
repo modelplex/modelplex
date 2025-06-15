@@ -9,7 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -34,11 +34,13 @@ type Server struct {
 	port       int
 	httpAddr   string
 	useSocket  bool
-	mu         sync.RWMutex // Protects listener and server fields
-	listener   net.Listener
-	server     *http.Server
-	mux        *multiplexer.ModelMultiplexer
-	proxy      *proxy.OpenAIProxy
+	// Channel-based coordination instead of mutex
+	ready    chan struct{}                // Signals when server is ready
+	done     chan struct{}                // Signals when server should stop
+	listener atomic.Pointer[net.Listener] // Atomic access to listener
+	server   atomic.Pointer[http.Server]  // Atomic access to server
+	mux      *multiplexer.ModelMultiplexer
+	proxy    *proxy.OpenAIProxy
 }
 
 // NewWithSocket creates a new server instance with Unix socket.
@@ -50,6 +52,8 @@ func NewWithSocket(cfg *config.Config, socketPath string) *Server {
 		config:     cfg,
 		socketPath: socketPath,
 		useSocket:  true,
+		ready:      make(chan struct{}),
+		done:       make(chan struct{}),
 		mux:        mux,
 		proxy:      proxy,
 	}
@@ -64,6 +68,8 @@ func NewWithHTTPAddress(cfg *config.Config, addr string) *Server {
 		config:    cfg,
 		httpAddr:  addr,
 		useSocket: false,
+		ready:     make(chan struct{}),
+		done:      make(chan struct{}),
 		mux:       mux,
 		proxy:     proxy,
 	}
@@ -79,6 +85,8 @@ func NewWithHTTP(cfg *config.Config, host string, port int) *Server {
 		host:      host,
 		port:      port,
 		useSocket: false,
+		ready:     make(chan struct{}),
+		done:      make(chan struct{}),
 		mux:       mux,
 		proxy:     proxy,
 	}
@@ -93,15 +101,14 @@ func New(cfg *config.Config, socketPath string) *Server {
 // Start starts the HTTP server listening on either Unix socket or HTTP port.
 func (s *Server) Start() error {
 	var err error
+	var listener net.Listener
 
 	if s.useSocket {
 		// Check if socket already exists and error if it does
 		if _, err := os.Stat(s.socketPath); err == nil {
 			return fmt.Errorf("socket file already exists: %s", s.socketPath)
 		}
-		s.mu.Lock()
-		s.listener, err = net.Listen("unix", s.socketPath)
-		s.mu.Unlock()
+		listener, err = net.Listen("unix", s.socketPath)
 		if err != nil {
 			return err
 		}
@@ -113,50 +120,64 @@ func (s *Server) Start() error {
 		} else {
 			addr = fmt.Sprintf("%s:%d", s.host, s.port)
 		}
-		s.mu.Lock()
-		s.listener, err = net.Listen("tcp", addr)
-		s.mu.Unlock()
+		listener, err = net.Listen("tcp", addr)
 		if err != nil {
 			return err
 		}
 		slog.Info("Modelplex server listening", "address", addr)
 	}
 
+	// Store listener atomically
+	s.listener.Store(&listener)
+
 	router := mux.NewRouter()
 	s.setupRoutes(router)
 
-	s.mu.Lock()
-	s.server = &http.Server{
+	server := &http.Server{
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 	}
-	server := s.server
-	listener := s.listener
-	s.mu.Unlock()
 
-	return server.Serve(listener)
+	// Store server atomically
+	s.server.Store(server)
+
+	// Signal that server is ready
+	close(s.ready)
+
+	// Start serving with graceful shutdown handling
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve(listener)
+	}()
+
+	// Wait for either an error or shutdown signal
+	select {
+	case err := <-errCh:
+		if err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	case <-s.done:
+		// Graceful shutdown
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		return server.Shutdown(ctx)
+	}
 }
 
 // Stop gracefully shuts down the server and cleans up resources.
 func (s *Server) Stop() {
-	s.mu.Lock()
-	server := s.server
-	listener := s.listener
-	s.mu.Unlock()
+	// Signal shutdown
+	select {
+	case <-s.done:
+		// Already stopped
+		return
+	default:
+		close(s.done)
+	}
 
-	if server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := server.Shutdown(ctx); err != nil {
-			slog.Error("Error shutting down server", "error", err)
-		}
-	}
-	if listener != nil {
-		if err := listener.Close(); err != nil {
-			slog.Error("Error closing listener", "error", err)
-		}
-	}
+	// Clean up socket file if needed
 	if s.useSocket {
 		if err := os.Remove(s.socketPath); err != nil {
 			slog.Error("Failed to remove socket file", "path", s.socketPath, "error", err)
@@ -164,17 +185,37 @@ func (s *Server) Stop() {
 	}
 }
 
+// Ready returns a channel that will be closed when the server is ready to accept connections.
+func (s *Server) Ready() <-chan struct{} {
+	return s.ready
+}
+
+// WaitReady waits for the server to be ready with a timeout.
+func (s *Server) WaitReady(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	select {
+	case <-s.ready:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("timeout waiting for server to be ready")
+	}
+}
+
 // Addr returns the actual network address the server is listening on.
 // Returns nil if the server is not started or is using a Unix socket.
 func (s *Server) Addr() net.Addr {
-	s.mu.RLock()
-	listener := s.listener
-	s.mu.RUnlock()
-
-	if listener != nil && !s.useSocket {
-		return listener.Addr()
+	if s.useSocket {
+		return nil
 	}
-	return nil
+
+	listenerPtr := s.listener.Load()
+	if listenerPtr == nil {
+		return nil
+	}
+
+	return (*listenerPtr).Addr()
 }
 
 // SocketPath returns the Unix socket path if the server is using a socket.
