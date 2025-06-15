@@ -39,9 +39,11 @@
 - **No sensitive data in logs**
 - **OpenAI API compatibility** must be maintained
 - **Synchronization patterns**:
-  - `errgroup.Group` with `.Go()` and `.Wait()` for goroutines
+  - `errgroup.Group` with `.Go()` and `.Wait()` for wherever possible for goroutines
+  - `sync.WaitGroup` if `errgroup` doesn't work for some reason
   - Channels for coordination
   - `context.WithTimeout()` for timeouts instead of sleeps
+  - low-level synchronization primitives like `Mutex` only if all else fails
 
 ### 4. Testing Requirements
 - **No sleeps in tests** - use synchronization primitives instead
