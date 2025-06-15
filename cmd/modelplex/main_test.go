@@ -17,7 +17,8 @@ func TestOptions_DefaultValues(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "config.toml", opts.Config)
-	assert.Equal(t, "./modelplex.socket", opts.Socket)
+	assert.Equal(t, "", opts.Socket)     // Socket is now optional, empty by default
+	assert.Equal(t, ":41041", opts.HTTP) // New default HTTP address
 	assert.False(t, opts.Verbose)
 	assert.False(t, opts.Version)
 }
@@ -29,6 +30,7 @@ func TestOptions_CustomValues(t *testing.T) {
 	args := []string{
 		"--config", "/custom/config.toml",
 		"--socket", "/tmp/custom.socket",
+		"--http", "0.0.0.0:8080",
 		"--verbose",
 	}
 	_, err := parser.ParseArgs(args)
@@ -36,6 +38,7 @@ func TestOptions_CustomValues(t *testing.T) {
 
 	assert.Equal(t, "/custom/config.toml", opts.Config)
 	assert.Equal(t, "/tmp/custom.socket", opts.Socket)
+	assert.Equal(t, "0.0.0.0:8080", opts.HTTP)
 	assert.True(t, opts.Verbose)
 	assert.False(t, opts.Version)
 }
@@ -47,6 +50,7 @@ func TestOptions_ShortFlags(t *testing.T) {
 	args := []string{
 		"-c", "short.toml",
 		"-s", "short.socket",
+		"--http", "127.0.0.1:9090",
 		"-v",
 	}
 	_, err := parser.ParseArgs(args)
@@ -54,6 +58,7 @@ func TestOptions_ShortFlags(t *testing.T) {
 
 	assert.Equal(t, "short.toml", opts.Config)
 	assert.Equal(t, "short.socket", opts.Socket)
+	assert.Equal(t, "127.0.0.1:9090", opts.HTTP)
 	assert.True(t, opts.Verbose)
 }
 

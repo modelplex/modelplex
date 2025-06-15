@@ -57,12 +57,10 @@ func TestIntegration_FullAPIFlow(t *testing.T) {
 		}
 	}()
 
-	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify socket exists
-	_, err := os.Stat(socketPath)
-	require.NoError(t, err)
+	// Wait for server to be ready
+	if err := srv.WaitReady(5 * time.Second); err != nil {
+		t.Fatal("Timeout waiting for socket server to start:", err)
+	}
 
 	defer srv.Stop()
 

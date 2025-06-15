@@ -33,9 +33,10 @@ graph LR
 - Use any model through one OpenAI-compatible interface
 - Manage API keys and secrets in modelplex, so your agent doesn't need to know about them.
 
-**🔒 Zero Network Dependencies**
-- Unix domain socket communication only
-- Run agents in a VM without a network device!
+**🌐 HTTP & Socket Support**
+- HTTP server by default on port 11435 for easy testing and development
+- Unix domain socket communication for secure, zero-network-dependency deployments
+- Run agents in a VM without a network device when using socket mode
 
 **📊 Full Observability**
 - Structured logging with slog
@@ -72,11 +73,54 @@ servers = [
 ### 3. Start Modelplex
 
 ```bash
-# Host system (with network access)
-./modelplex --config config.toml --socket ./modelplex.socket --verbose
+# HTTP server (default - :41041)
+./modelplex --config config.toml
+
+# HTTP server on custom address
+./modelplex --config config.toml --http "0.0.0.0:8080"
+
+# HTTP server on custom port (localhost)
+./modelplex --config config.toml --http ":8080"
+
+# Socket mode for zero-network-dependency isolation
+./modelplex --config config.toml --socket ./modelplex.socket
+
+# Verbose logging
+./modelplex --config config.toml --verbose
 ```
 
 ### 4. Connect with an agent
+
+#### HTTP Mode (default)
+
+```python
+# Standard HTTP connection (Python)
+import openai
+
+client = openai.OpenAI(
+    base_url="http://localhost:41041/models/v1",
+    api_key="unused"  # Not needed, handled by modelplex
+)
+
+response = client.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": "Hello from HTTP!"}]
+)
+
+print(response.choices[0].message.content)
+```
+
+```bash
+# HTTP mode (curl)
+curl -X POST http://localhost:41041/models/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+#### Socket Mode (for complete isolation)
 
 ```python
 # Isolated agent environment (Python)
@@ -97,7 +141,22 @@ print(response.choices[0].message.content)
 ```
 
 ```javascript
-// Isolated agent environment (Node.js)
+// HTTP mode (Node.js)
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: 'http://localhost:41041/models/v1',
+  apiKey: 'unused'
+});
+
+const response = await client.chat.completions.create({
+  model: 'claude-3-sonnet',
+  messages: [{ role: 'user', content: 'Hello from HTTP!' }]
+});
+```
+
+```javascript
+// Socket mode (Node.js)
 import OpenAI from 'openai';
 
 const client = new OpenAI({
@@ -112,9 +171,9 @@ const response = await client.chat.completions.create({
 ```
 
 ```bash
-# Isolated agent environment (curl)
+# Socket mode (curl)
 curl --unix-socket ./modelplex.socket \
-  -X POST http://localhost/v1/chat/completions \
+  -X POST http://localhost/models/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4",
@@ -122,15 +181,34 @@ curl --unix-socket ./modelplex.socket \
   }'
 ```
 
+## API Endpoints
+
+Modelplex exposes several endpoint groups:
+
+- **`/models/v1/*`** - OpenAI-compatible API endpoints
+- **`/mcp/v1/*`** - Model Context Protocol endpoints
+- **`/_internal/*`** - Internal management endpoints (HTTP mode only)
+- **`/health`** - Health check endpoint
+
+Internal endpoints are only available when running in HTTP mode, providing additional security in socket deployments.
+
 
 ## Docker
 
 ```bash
-# Build and run
+# Build
 docker build -t modelplex .
+
+# Run with HTTP server (default)
+docker run -p 41041:41041 -v /path/to/config.toml:/config.toml modelplex
+
+# Run with custom address
+docker run -p 8080:8080 -v /path/to/config.toml:/config.toml modelplex --http ":8080"
+
+# Run with socket
 docker run -v /path/to/config.toml:/config.toml \
            -v /path/to/socket:/socket \
-           modelplex --config /config.toml --socket /socket/modelplex.socket
+           modelplex --socket /socket/modelplex.socket
 ```
 
 ## Roadmap
