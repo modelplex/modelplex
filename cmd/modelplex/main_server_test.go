@@ -40,12 +40,7 @@ func TestHTTPServerByDefault(t *testing.T) {
 	
 	// Start server using errgroup
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			return err
-		}
-		return nil
-	})
+	eg.Go(srv.Start)
 	
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -82,12 +77,7 @@ func TestSocketServerWhenSpecified(t *testing.T) {
 	
 	// Start server using errgroup
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			return err
-		}
-		return nil
-	})
+	eg.Go(srv.Start)
 	
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
@@ -140,12 +130,7 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	
 	// Start server using errgroup
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			return err
-		}
-		return nil
-	})
+	eg.Go(srv.Start)
 	
 	// Give server time to start
 	time.Sleep(200 * time.Millisecond)
