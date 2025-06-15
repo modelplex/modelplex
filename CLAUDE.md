@@ -64,6 +64,29 @@ if err := os.Remove(s.socketPath); err != nil {
 }
 ```
 
+### Integration Test Improvements
+**Issue**: Use errgroup, avoid sleep, create helper functions
+**Fix**: Added helper functions and errgroup for better test reliability
+```go
+// Before
+listener, err := net.Listen("tcp", "127.0.0.1:0")
+require.NoError(t, err)
+port := listener.Addr().(*net.TCPAddr).Port
+listener.Close()
+
+go func() {
+    if err := srv.Start(); err != nil && err != http.ErrServerClosed {
+        t.Logf("Server error: %v", err)
+    }
+}()
+time.Sleep(200 * time.Millisecond)
+
+// After
+port := getAvailablePort(t)
+_, cleanup := startServerWithErrgroup(t, srv)
+defer cleanup()
+```
+
 ## Git Practices
 Always include the AI agent as the commit author, for example:
 ```bash
