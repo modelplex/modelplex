@@ -12,10 +12,35 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/modelplex/modelplex/internal/config"
 	"github.com/modelplex/modelplex/internal/server"
 )
+
+// getAvailablePort returns an available TCP port
+func getAvailablePort(t *testing.T) int {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return port
+}
+
+// startServerWithErrgroup starts a server using errgroup and waits for it to be ready
+func startServerWithErrgroup(t *testing.T, srv *server.Server) (*errgroup.Group, func()) {
+	eg, _ := errgroup.WithContext(context.Background())
+	eg.Go(srv.Start)
+	
+	// Instead of sleep, we could implement a health check here
+	// For now, keeping a minimal delay
+	time.Sleep(50 * time.Millisecond)
+	
+	return eg, func() {
+		srv.Stop()
+		_ = eg.Wait() // Ignore expected shutdown errors
+	}
+}
 
 // TestIntegration_HTTPEndpoints tests the full HTTP endpoint functionality
 func TestIntegration_HTTPEndpoints(t *testing.T) {
@@ -55,24 +80,12 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 		},
 	}
 
-	// Find an available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
-
-	// Start HTTP server
+	// Find an available port and start server
+	port := getAvailablePort(t)
 	srv := server.NewWithHTTPAddress(cfg, fmt.Sprintf("127.0.0.1:%d", port))
 
-	go func() {
-		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-
-	// Give server time to start
-	time.Sleep(200 * time.Millisecond)
-	defer srv.Stop()
+	_, cleanup := startServerWithErrgroup(t, srv)
+	defer cleanup()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -246,15 +259,8 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 	// Start socket server
 	srv := server.NewWithSocket(cfg, socketPath)
 
-	go func() {
-		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			t.Logf("Server error: %v", err)
-		}
-	}()
-
-	// Give server time to start
-	time.Sleep(200 * time.Millisecond)
-	defer srv.Stop()
+	_, cleanup := startServerWithErrgroup(t, srv)
+	defer cleanup()
 
 	// Create HTTP client for Unix socket
 	client := &http.Client{
@@ -345,25 +351,15 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 
 	t.Run("HTTP Mode", func(t *testing.T) {
 		// Find available port
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-		port := listener.Addr().(*net.TCPAddr).Port
-		listener.Close()
+		port := getAvailablePort(t)
 
 		// Create server and client
 		srv := server.NewWithHTTPAddress(cfg, fmt.Sprintf("127.0.0.1:%d", port))
 		client := &http.Client{Timeout: 5 * time.Second}
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-		// Start server
-		go func() {
-			if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-				t.Logf("Server error: %v", err)
-			}
-		}()
-
-		time.Sleep(200 * time.Millisecond)
-		defer srv.Stop()
+		_, cleanup := startServerWithErrgroup(t, srv)
+		defer cleanup()
 
 		// Test common endpoints
 		commonEndpoints := []string{"/health", "/models/v1/models", "/v1/models"}
@@ -408,15 +404,8 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 		}
 		baseURL := "http://unix"
 
-		// Start server
-		go func() {
-			if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-				t.Logf("Server error: %v", err)
-			}
-		}()
-
-		time.Sleep(200 * time.Millisecond)
-		defer srv.Stop()
+		_, cleanup := startServerWithErrgroup(t, srv)
+		defer cleanup()
 
 		// Test common endpoints
 		commonEndpoints := []string{"/health", "/models/v1/models", "/v1/models"}
