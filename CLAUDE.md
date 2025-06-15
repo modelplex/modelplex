@@ -3,77 +3,109 @@
 ## Project Overview
 **Modelplex** is a production-ready system for running AI agents in complete network isolation through Unix socket communication. It acts as a proxy/multiplexer between isolated environments (VMs, containers) and AI providers (OpenAI, Anthropic, Ollama).
 
-### Core Architecture
-
 **Data Flows:**
 - Guest VM LLM Agent → Unix Socket → Modelplex Proxy → Model Multiplexer → AI Providers (OpenAI/Anthropic/Ollama)
 - Guest VM LLM Agent ← Unix Socket ← Modelplex Proxy ← Model Multiplexer ← AI Providers (responses)
 - Modelplex MCP Client → MCP Servers (filesystem, database, etc.)
-- Modelplex MCP Client ← MCP Servers (tool results)
 
-**Communication Layers:**
+**Communication:**
 - **Transport**: Unix domain socket (modelplex.socket)
 - **Protocol**: HTTP with OpenAI-compatible API
 - **Authentication**: API keys managed by Modelplex host
 - **Isolation**: Complete network isolation for guest environments
 
-## Technology Stack & Requirements
+## Development Workflow
 
-### Core Technologies
-- **Language**: Go 1.24+ (currently 1.24.4 for security patches)
-- **Config**: TOML (not YAML) with environment variable substitution
-- **CLI**: jessevdk/go-flags for professional CLI interface
-- **HTTP Router**: gorilla/mux for OpenAI-compatible API
-- **Testing**: testify framework with comprehensive test coverage
-- **Logging**: structured logging with slog (not standard log package)
+### 1. Setup & Environment
+- **Language**: Go 1.24.4+ for security patches
+- **Config**: TOML with `${ENV_VAR_NAME}` substitution
+- **CLI**: jessevdk/go-flags
+- **Testing**: testify framework
+- **Logging**: slog structured logging (never standard log package)
 
-### Key Dependencies
-```go
-require (
-    github.com/gorilla/mux v1.8.1
-    github.com/jessevdk/go-flags v1.5.0
-    github.com/pelletier/go-toml/v2 v2.1.1
-    github.com/stretchr/testify v1.8.4
-)
-```
+### 2. Branch & Development Process
+1. **Create branch**: `{gh username}/{feature-name}` format
+2. **Code following standards**: See Code Quality section below
+3. **Run tests**: `go test -v ./...` and `go test -v -race ./...`
+4. **Run linting**: `golangci-lint run`, `gofmt -s -w .`, `goimports -w .`
+5. **Test Docker builds** if applicable
+6. **Create PR** with detailed technical context
 
-## Code Architecture & Components
+### 3. Code Quality Standards
+- **Comments focus on "why"** - explain reasoning, not what code does
+- **Documentation comments** for all exported functions/types (Go convention)
+- **Structured logging** with slog key-value pairs
+- **No sensitive data in logs**
+- **OpenAI API compatibility** must be maintained
+- **Synchronization patterns**:
+  - `errgroup.Group` with `.Go()` and `.Wait()` for goroutines
+  - Channels for coordination
+  - `context.WithTimeout()` for timeouts instead of sleeps
+
+### 4. Testing Requirements
+- **No sleeps in tests** - use synchronization primitives instead
+- **Use `t.Context()`** when functions need context
+- **Require** 100% pass rate
+- **Ensure** security/vulnerability checks pass
+
+### 5. PR Review & Merge
+- All PRs require review and approval
+- CI/CD must pass: tests, linting, security scans, builds
+- No merge until all conversations resolved
+
+### 6. Docker Strategy
+- **Base**: golang:1.24.4-alpine (matches go.mod)
+- **Multi-stage builds** for minimal production images and security-hardened runner
+- **Non-root user**: modelplex:1001
+- **Static compilation**: CGO_ENABLED=0
+
+### 7. CI/CD Pipeline
+- **Security scanning**: gosec, govulncheck
+- **Multi-platform builds**: Linux, macOS, Windows, ARM64
+- **Docker integration** with GitHub Container Registry
+- **Registry**: ghcr.io/modelplex/modelplex
+
+## Technical Architecture
 
 ### Directory Structure
 ```
-cmd/modelplex/           # CLI application entry point
+cmd/modelplex/           # CLI entry point
 internal/
-├── config/              # TOML configuration management
+├── config/              # TOML configuration
 ├── multiplexer/         # Model routing and provider selection
-├── providers/           # AI provider implementations (OpenAI, Anthropic, Ollama)
+├── providers/           # AI provider implementations
 ├── proxy/               # OpenAI-compatible API proxy
 ├── server/              # Unix socket HTTP server
 ├── mcp/                 # Model Context Protocol integration
 └── monitoring/          # Structured logging utilities
 test/
-├── integration/         # Full system integration tests
-└── testutil/           # Test helper utilities
+├── integration/         # Full system tests
+└── testutil/           # Test helpers
+```
+
+### Key Dependencies
+```go
+require (
+    github.com/gorilla/mux v1.8.1           // HTTP routing
+    github.com/jessevdk/go-flags v1.5.0     // CLI parsing
+    github.com/pelletier/go-toml/v2 v2.1.1  // TOML config
+    github.com/stretchr/testify v1.8.4      // Testing
+)
 ```
 
 ### Provider Implementations
 
-#### OpenAI Provider
-- Full OpenAI API compatibility
-- Bearer token authentication
+**OpenAI Provider**
+- Full API compatibility, Bearer token auth
 - Direct passthrough for requests/responses
-- Supports chat completions and text completions
 
-#### Anthropic Provider
-- x-api-key header authentication
-- anthropic-version: "2023-06-01" header required
-- System message transformation (moved to separate field)
-- Response format normalization to OpenAI-compatible
+**Anthropic Provider**
+- x-api-key header, anthropic-version: "2023-06-01"
+- System message transformation, response normalization
 
-#### Ollama Provider
-- No authentication required
-- Local inference endpoints: /api/chat, /api/generate
-- stream: false parameter required
-- Response format normalization
+**Ollama Provider**
+- No authentication, local endpoints (/api/chat, /api/generate)
+- stream: false parameter, response normalization
 
 ### Configuration Format
 ```toml
@@ -92,233 +124,57 @@ servers = [
 ]
 ```
 
-## Development Guidelines & Standards
-
-### Code Quality Standards
-- **Code comments focused on "why"** - explain reasoning, not what the code does
-- **Required documentation comments** for all exported functions, types, and identifiers (Go convention)
-- **Auto-documentation support** - comments should be suitable for godoc generation
-- **Structured logging** with slog using key-value pairs
-- **Comprehensive testing** - unit tests for all components
-- **Security-first approach** - no sensitive data in logs
-- **OpenAI API compatibility** must be maintained
-- **Go idioms** - follow standard Go conventions
-
-### Comment Guidelines
-- **Exported identifiers**: Must have documentation comments starting with the identifier name
-- **Package documentation**: Package-level comments explaining purpose and usage
-- **Complex logic**: Comments explaining "why" decisions were made, not "what" is happening
-- **API differences**: Document how provider implementations differ from OpenAI standard
-- **Security considerations**: Comment on security-related code decisions
-- **Performance notes**: Explain performance trade-offs when relevant
-
-### Testing Requirements
-- **55+ tests** across all components with 100% pass rate
-- **Unit tests** for providers, multiplexer, proxy, server
-- **Integration tests** for full system validation
-- **Mock-based testing** with testify framework
-- **Race detection** for concurrent safety testing
-- **No sleeps in tests** - avoid `time.Sleep()` if at all possible, use synchronization primitives instead
-- **Test commands**:
-  - `go test -v ./...` - all tests
-  - `go test -v -race ./...` - with race detection
-  - `go test -v -run Integration ./test/integration/...` - integration only
-
-### Test Design Guidelines
-- **Avoid time.Sleep()** - Use channels, errgroups, or context timeouts instead
-- **Deterministic tests** - Tests should not rely on timing or sleep delays
-- **Fast execution** - Tests should complete quickly without artificial delays
-- **Use test context** - When functions need context, pass `t.Context()` for automatic cleanup
-- **Synchronization patterns** - Use proper Go concurrency primitives:
-  - `errgroup.Group` with `.Go()` and `.Wait()` for goroutine management
-  - Channels for coordination and signaling
-  - `context.WithTimeout()` for timeouts instead of sleeps
-  - `t.Context()` for test context that respects test timeouts and cancellation
-  - Mock objects with explicit control over timing
-
-### Security & Vulnerability Management
-- **Go 1.24.4** required for latest security patches
-- **govulncheck** for vulnerability scanning (replaced Nancy)
-- **gosec** for security analysis
-- **Structured logging** prevents injection attacks
-- **Minimal dependencies** - only essential libraries
-- **Regular dependency updates** via CI/CD
-
-## CI/CD Pipeline & Infrastructure
-
-### GitHub Actions Workflows
-- **Multi-Go version testing** (1.23, 1.24.4)
-- **Comprehensive linting** with golangci-lint
-- **Security scanning** with gosec and govulncheck
-- **Multi-platform builds** (Linux, macOS, Windows, ARM64)
-- **Docker integration** with GitHub Container Registry
-- **Codecov integration** for coverage reporting
-
-### Docker & Container Strategy
-- **Base image**: golang:1.24.4-alpine (matches go.mod)
-- **Multi-stage builds** for minimal production images
-- **Non-root user**: modelplex:1001 for security
-- **Static binary compilation** with CGO_ENABLED=0
-- **Health checks** for container monitoring
-- **Registry**: ghcr.io/shazow/modelplex with multiple tags
-
-### Container Tags Strategy
-- `ghcr.io/shazow/modelplex:latest` - latest main branch
-- `ghcr.io/shazow/modelplex:main-{10-char-sha}` - specific commits
-- `ghcr.io/shazow/modelplex:main` - main branch tracking
-
-## Development Workflow & Practices
-
-### Branch Naming Convention
-- Use `jzila/{feature-name}` format for all branches
-- Examples: `jzila/update-readme`, `jzila/fix-docker-build`
-
-### Commit Message Standards
-- Use conventional commits format
-- Types: feat, fix, docs, refactor, test, ci, security
-- Include comprehensive descriptions with technical details
-- Reference specific files and line numbers when relevant
-
-### PR Creation Process
-1. Create feature branch with `jzila/` prefix
-2. Implement changes following code standards
-3. Run full test suite locally
-4. Run linting: `golangci-lint run`
-5. Test Docker builds if applicable
-6. Create PR with detailed description and technical context
-7. Include breaking changes, testing info, and migration notes
-
-### Code Review & Quality Checks
-- All PRs require review and approval
-- CI/CD must pass: tests, linting, security scans, builds
-- No merge until all conversations resolved
-
-## Configuration & Environment
-
-### Environment Variables
-- `OPENAI_API_KEY` - OpenAI authentication
-- `ANTHROPIC_API_KEY` - Anthropic authentication
-- Config supports `${ENV_VAR_NAME}` substitution
-
-### File Structure Requirements
-- **config.toml** - default configuration file
-- **modelplex.socket** - default Unix socket path
-- **.dockerignore** - exclude development files from builds
-- **justfile** - task automation (if present)
-
-## API Compatibility & Endpoints
+## API & Configuration
 
 ### Supported Endpoints
 - `POST /v1/chat/completions` - Chat completions (all providers)
 - `POST /v1/completions` - Text completions (OpenAI, Ollama)
 - `GET /v1/models` - List available models
-- `GET /health` - Health check endpoint
+- `GET /health` - Health check
 
-### Request/Response Handling
-- All requests/responses follow OpenAI specification
-- Provider-specific differences handled internally
-- Model routing specifics TBD - currently explicit
-- Potentially automatic failover to lower priority providers
+### Environment Variables
+- `OPENAI_API_KEY` - OpenAI authentication
+- `ANTHROPIC_API_KEY` - Anthropic authentication
 
-## Performance & Optimization
+### File Requirements
+- **config.toml** - default configuration
+- **modelplex.socket** - default Unix socket path
+- **.dockerignore** - exclude development files
 
-### Build Optimizations
-- Static binary compilation for portability
-- Multi-stage Docker builds for minimal image size
-- GitHub Actions caching for faster CI/CD
-- Layer optimization in Dockerfiles
+## Security & Performance
 
-### Runtime Performance
-- Priority-based provider routing
-- Connection pooling and reuse
-- Structured logging for minimal overhead
-- Unix socket communication for maximum performance
-
-## Security Requirements
-
-### Network Isolation
-- Support proxying the entire application over unix sockets enabling zero-networking environments.
-- Complete isolation of guest environments
-
-### Container Security
-- Non-root user execution (UID 1001)
-- Use multi-step container builds with a builder and then a hardened Alpine image for the runner
-- Static binaries with no external dependencies
-
-### Data Protection
-- No sensitive data in logs
-- API keys managed via environment variables
-- No persistent storage of credentials
-- Audit trail through structured logging
-
-## Troubleshooting & Common Issues
-
-### Docker Build Failures
-- Ensure Go version matches between Dockerfile and go.mod
-- Check .dockerignore excludes development files
-- Verify GHCR permissions for registry pushes
-
-### Test Failures
-- Run `go mod tidy` if dependency issues
-- Check race conditions with `go test -race`
-- Verify mock expectations in testify tests
-
-### CI/CD Issues
-- Nancy vulnerability scanner replaced with govulncheck
-
-## Future Development Guidelines
+## Future Development
 
 ### Adding New Providers
 1. Implement Provider interface in internal/providers/
 2. Add configuration parsing in internal/config/
 3. Add comprehensive tests with mocks
 4. Update multiplexer registration
-5. Document API differences and authentication
+5. Document API differences
 6. Add integration tests
 
-### Extending MCP Integration
-1. Follow Model Context Protocol specification
-2. Add server configuration in TOML
-3. Implement tool calling interfaces
-4. Add proper error handling and timeouts
-5. Test with real MCP servers
+### MCP Pass-through Proxy (Future)
+Currently only implements MCP client. Future: MCP server implementation to accept external clients.
 
-### MCP Pass-through Proxy (Future Feature)
-Currently, Modelplex only implements an MCP client for internal tool execution. Future development should include:
-
-1. **MCP Server Implementation** - Accept connections from external MCP clients
-2. **Tool Aggregation** - Merge tools from multiple backend MCP servers into unified interface
-3. **Request Routing** - Route tool calls from external clients to appropriate backend servers
-4. **Protocol Support** - Handle MCP JSON-RPC over stdin/stdout and other transports
-5. **Connection Management** - Manage multiple concurrent MCP client connections
-6. **Namespace Management** - Handle tool name conflicts across multiple backend servers
-
-**Target Architecture:**
+**Target Flow:**
 ```
 External MCP Client -> Modelplex MCP Server -> Backend MCP Server 1
                                            -> Backend MCP Server 2
                                            -> Backend MCP Server 3
 ```
 
-This would enable Modelplex to act as a centralized MCP proxy, allowing isolated environments to access multiple MCP servers through a single connection point while maintaining the same network isolation benefits.
+## Troubleshooting
 
-### Performance Enhancements
-- Profile with Go pprof before optimizing
-- Maintain OpenAI API compatibility
-- Test under load with realistic scenarios
-- Monitor resource usage in containers
+### Common Issues
+- **Docker builds**: Ensure Go version matches Dockerfile/go.mod
+- **Tests**: Run `go mod tidy`, check race conditions
+- **CI/CD**: Use govulncheck (not Nancy), upload-artifact v4+
 
-## Key Success Metrics
+### Success Metrics
+- All tests pass with race detection
+- golangci-lint, gofmt, goimports clean
+- govulncheck passes
+- All CI/CD workflows pass
+- Documentation up to date
 
-### Code Quality
-- Use `slog` structured logging
-- Ensure all tests pass
-- Ensure golangci-lint passes
-- Ensure gofmt and goimports have been executed and applied (`-w`)
-- Ensure govulncheck has been executed
-
-### Production Readiness
-- After a PR is submitted, follow along to ensure all workflows pass
-- Ensure documentation is up to date
-
-This knowledge base should enable efficient development and maintenance of the Modelplex project while maintaining high quality and security standards.
+This knowledge base enables efficient development while maintaining high quality and security standards.
