@@ -4,22 +4,18 @@
 **Modelplex** is a production-ready system for running AI agents in complete network isolation through Unix socket communication. It acts as a proxy/multiplexer between isolated environments (VMs, containers) and AI providers (OpenAI, Anthropic, Ollama).
 
 ### Core Architecture
-```
-+-----------------+    +------------------+    +-----------------+
-|   Guest VM      |    |   Modelplex      |    |   Providers     |
-|                 |    |   (Host)         |    |                 |
-|  +-----------+  |    |  +-------------+ |    | +-------------+ |
-|  |    LLM    |  |    |  |   Model     | |    | |   OpenAI    | |
-|  |   Agent   |<-+----+->| Multiplexer |<+----+>|  Anthropic  | |
-|  +-----------+  |    |  +-------------+ |    | |   Ollama    | |
-|                 |    |  +-------------+ |    | +-------------+ |
-|                 |    |  |    MCP      | |    |                 |
-|                 |    |  | Integration |<+----+-> MCP Servers   |
-|                 |    |  +-------------+ |    |                 |
-+-----------------+    +------------------+    +-----------------+
-        |                        |
-        +----modelplex.socket----+
-```
+
+**Data Flows:**
+- Guest VM LLM Agent → Unix Socket → Modelplex Proxy → Model Multiplexer → AI Providers (OpenAI/Anthropic/Ollama)
+- Guest VM LLM Agent ← Unix Socket ← Modelplex Proxy ← Model Multiplexer ← AI Providers (responses)
+- Modelplex MCP Client → MCP Servers (filesystem, database, etc.)
+- Modelplex MCP Client ← MCP Servers (tool results)
+
+**Communication Layers:**
+- **Transport**: Unix domain socket (modelplex.socket)
+- **Protocol**: HTTP with OpenAI-compatible API
+- **Authentication**: API keys managed by Modelplex host
+- **Isolation**: Complete network isolation for guest environments
 
 ## Technology Stack & Requirements
 
@@ -122,10 +118,23 @@ servers = [
 - **Integration tests** for full system validation
 - **Mock-based testing** with testify framework
 - **Race detection** for concurrent safety testing
+- **No sleeps in tests** - avoid `time.Sleep()` if at all possible, use synchronization primitives instead
 - **Test commands**:
   - `go test -v ./...` - all tests
   - `go test -v -race ./...` - with race detection
   - `go test -v -run Integration ./test/integration/...` - integration only
+
+### Test Design Guidelines
+- **Avoid time.Sleep()** - Use channels, errgroups, or context timeouts instead
+- **Deterministic tests** - Tests should not rely on timing or sleep delays
+- **Fast execution** - Tests should complete quickly without artificial delays
+- **Use test context** - When functions need context, pass `t.Context()` for automatic cleanup
+- **Synchronization patterns** - Use proper Go concurrency primitives:
+  - `errgroup.Group` with `.Go()` and `.Wait()` for goroutine management
+  - Channels for coordination and signaling
+  - `context.WithTimeout()` for timeouts instead of sleeps
+  - `t.Context()` for test context that respects test timeouts and cancellation
+  - Mock objects with explicit control over timing
 
 ### Security & Vulnerability Management
 - **Go 1.24.4** required for latest security patches
@@ -183,14 +192,13 @@ servers = [
 - All PRs require review and approval
 - CI/CD must pass: tests, linting, security scans, builds
 - No merge until all conversations resolved
-- Maintain backward compatibility for OpenAI API
 
 ## Configuration & Environment
 
 ### Environment Variables
 - `OPENAI_API_KEY` - OpenAI authentication
 - `ANTHROPIC_API_KEY` - Anthropic authentication
-- Config supports `${VAR_NAME}` substitution
+- Config supports `${ENV_VAR_NAME}` substitution
 
 ### File Structure Requirements
 - **config.toml** - default configuration file
@@ -209,8 +217,8 @@ servers = [
 ### Request/Response Handling
 - All requests/responses follow OpenAI specification
 - Provider-specific differences handled internally
-- Model routing based on availability and priority
-- Automatic failover to lower priority providers
+- Model routing specifics TBD - currently explicit
+- Potentially automatic failover to lower priority providers
 
 ## Performance & Optimization
 
@@ -226,21 +234,19 @@ servers = [
 - Structured logging for minimal overhead
 - Unix socket communication for maximum performance
 
-## Security Considerations
+## Security Requirements
 
 ### Network Isolation
-- Unix domain sockets only - no network dependencies
+- Support proxying the entire application over unix sockets enabling zero-networking environments.
 - Complete isolation of guest environments
-- Host-based provider communication only
 
 ### Container Security
 - Non-root user execution (UID 1001)
-- Minimal attack surface with Alpine base
+- Use multi-step container builds with a builder and then a hardened Alpine image for the runner
 - Static binaries with no external dependencies
-- Regular security updates via automated CI/CD
 
 ### Data Protection
-- No sensitive data in logs (structured logging prevents leaks)
+- No sensitive data in logs
 - API keys managed via environment variables
 - No persistent storage of credentials
 - Audit trail through structured logging
@@ -259,8 +265,6 @@ servers = [
 
 ### CI/CD Issues
 - Nancy vulnerability scanner replaced with govulncheck
-- Upload-artifact updated to v4 from deprecated v3
-- Ensure all GitHub Actions use latest versions
 
 ## Future Development Guidelines
 
@@ -307,15 +311,14 @@ This would enable Modelplex to act as a centralized MCP proxy, allowing isolated
 ## Key Success Metrics
 
 ### Code Quality
-- **55+ tests** with 100% pass rate maintained
-- **Zero security vulnerabilities** in dependencies
-- **Clean linting** with golangci-lint
-- **Complete OpenAI API compatibility**
+- Use `slog` structured logging
+- Ensure all tests pass
+- Ensure golangci-lint passes
+- Ensure gofmt and goimports have been executed and applied (`-w`)
+- Ensure govulncheck has been executed
 
 ### Production Readiness
-- **Multi-platform builds** working correctly
-- **Docker containers** running in production
-- **GitHub Container Registry** integration functional
-- **Comprehensive documentation** and examples
+- After a PR is submitted, follow along to ensure all workflows pass
+- Ensure documentation is up to date
 
 This knowledge base should enable efficient development and maintenance of the Modelplex project while maintaining high quality and security standards.
