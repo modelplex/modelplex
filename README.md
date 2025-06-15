@@ -73,7 +73,7 @@ servers = [
 ### 3. Start Modelplex
 
 ```bash
-# HTTP server (default - :11435)
+# HTTP server (default - :41041)
 ./modelplex --config config.toml
 
 # HTTP server on custom address
@@ -98,7 +98,7 @@ servers = [
 import openai
 
 client = openai.OpenAI(
-    base_url="http://localhost:11435/models/v1",
+    base_url="http://localhost:41041/models/v1",
     api_key="unused"  # Not needed, handled by modelplex
 )
 
@@ -112,7 +112,7 @@ print(response.choices[0].message.content)
 
 ```bash
 # HTTP mode (curl)
-curl -X POST http://localhost:11435/models/v1/chat/completions \
+curl -X POST http://localhost:41041/models/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4",
@@ -145,7 +145,7 @@ print(response.choices[0].message.content)
 import OpenAI from 'openai';
 
 const client = new OpenAI({
-  baseURL: 'http://localhost:11435/models/v1',
+  baseURL: 'http://localhost:41041/models/v1',
   apiKey: 'unused'
 });
 
@@ -200,7 +200,7 @@ Internal endpoints are only available when running in HTTP mode, providing addit
 docker build -t modelplex .
 
 # Run with HTTP server (default)
-docker run -p 11435:11435 -v /path/to/config.toml:/config.toml modelplex
+docker run -p 41041:41041 -v /path/to/config.toml:/config.toml modelplex
 
 # Run with custom address
 docker run -p 8080:8080 -v /path/to/config.toml:/config.toml modelplex --http ":8080"
