@@ -22,6 +22,7 @@
 - **CLI**: jessevdk/go-flags
 - **Testing**: testify framework
 - **Logging**: slog structured logging (never standard log package)
+- **Local execution**: read the `justfile` at the root of the repository
 
 ### 2. Branch & Development Process
 1. **Create branch**: `{gh username}/{feature-name}` format
