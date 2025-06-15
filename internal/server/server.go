@@ -90,14 +90,14 @@ func New(cfg *config.Config, socketPath string) *Server {
 
 // Start starts the HTTP server listening on either Unix socket or HTTP port.
 func (s *Server) Start() error {
-	var listener net.Listener
 	var err error
 
 	if s.useSocket {
-		if err := os.RemoveAll(s.socketPath); err != nil {
-			return err
+		// Check if socket already exists and error if it does
+		if _, err := os.Stat(s.socketPath); err == nil {
+			return fmt.Errorf("socket file already exists: %s", s.socketPath)
 		}
-		listener, err = net.Listen("unix", s.socketPath)
+		s.listener, err = net.Listen("unix", s.socketPath)
 		if err != nil {
 			return err
 		}
@@ -109,14 +109,12 @@ func (s *Server) Start() error {
 		} else {
 			addr = fmt.Sprintf("%s:%d", s.host, s.port)
 		}
-		listener, err = net.Listen("tcp", addr)
+		s.listener, err = net.Listen("tcp", addr)
 		if err != nil {
 			return err
 		}
 		slog.Info("Modelplex server listening", "address", addr)
 	}
-
-	s.listener = listener
 
 	router := mux.NewRouter()
 	s.setupRoutes(router)
@@ -127,7 +125,7 @@ func (s *Server) Start() error {
 		WriteTimeout: writeTimeout,
 	}
 
-	return s.server.Serve(listener)
+	return s.server.Serve(s.listener)
 }
 
 // Stop gracefully shuts down the server and cleans up resources.
@@ -145,8 +143,8 @@ func (s *Server) Stop() {
 		}
 	}
 	if s.useSocket {
-		if err := os.RemoveAll(s.socketPath); err != nil {
-			slog.Error("Error removing socket path", "path", s.socketPath, "error", err)
+		if err := os.Remove(s.socketPath); err != nil {
+			slog.Error("Failed to remove socket file", "path", s.socketPath, "error", err)
 		}
 	}
 }
