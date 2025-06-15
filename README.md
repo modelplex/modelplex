@@ -73,7 +73,7 @@ servers = [
 ### 3. Start Modelplex
 
 ```bash
-# HTTP server (default - localhost:11435)
+# HTTP server (default - :11435)
 ./modelplex --config config.toml
 
 # HTTP server on custom address

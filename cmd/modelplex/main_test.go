@@ -18,7 +18,7 @@ func TestOptions_DefaultValues(t *testing.T) {
 
 	assert.Equal(t, "config.toml", opts.Config)
 	assert.Equal(t, "", opts.Socket) // Socket is now optional, empty by default
-	assert.Equal(t, "localhost:11435", opts.HTTP) // New default HTTP address
+	assert.Equal(t, ":11435", opts.HTTP) // New default HTTP address
 	assert.False(t, opts.Verbose)
 	assert.False(t, opts.Version)
 }

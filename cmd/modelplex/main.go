@@ -18,7 +18,7 @@ import (
 type Options struct {
 	Config  string `short:"c" long:"config" default:"config.toml" description:"Path to configuration file"`
 	Socket  string `short:"s" long:"socket" description:"Path to Unix socket (optional, HTTP server used by default)"`
-	HTTP    string `long:"http" default:"localhost:11435" description:"HTTP server address in [HOST]:PORT format"`
+	HTTP    string `long:"http" default:":11435" description:"HTTP server address in [HOST]:PORT format"`
 	Verbose bool   `short:"v" long:"verbose" description:"Enable verbose logging"`
 	Version bool   `long:"version" description:"Show version information"`
 }
