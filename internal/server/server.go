@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -33,6 +34,7 @@ type Server struct {
 	port       int
 	httpAddr   string
 	useSocket  bool
+	mu         sync.RWMutex // Protects listener and server fields
 	listener   net.Listener
 	server     *http.Server
 	mux        *multiplexer.ModelMultiplexer
@@ -59,11 +61,11 @@ func NewWithHTTPAddress(cfg *config.Config, addr string) *Server {
 	proxy := proxy.New(mux)
 
 	return &Server{
-		config:     cfg,
-		httpAddr:   addr,
-		useSocket:  false,
-		mux:        mux,
-		proxy:      proxy,
+		config:    cfg,
+		httpAddr:  addr,
+		useSocket: false,
+		mux:       mux,
+		proxy:     proxy,
 	}
 }
 
@@ -97,7 +99,9 @@ func (s *Server) Start() error {
 		if _, err := os.Stat(s.socketPath); err == nil {
 			return fmt.Errorf("socket file already exists: %s", s.socketPath)
 		}
+		s.mu.Lock()
 		s.listener, err = net.Listen("unix", s.socketPath)
+		s.mu.Unlock()
 		if err != nil {
 			return err
 		}
@@ -109,7 +113,9 @@ func (s *Server) Start() error {
 		} else {
 			addr = fmt.Sprintf("%s:%d", s.host, s.port)
 		}
+		s.mu.Lock()
 		s.listener, err = net.Listen("tcp", addr)
+		s.mu.Unlock()
 		if err != nil {
 			return err
 		}
@@ -119,26 +125,35 @@ func (s *Server) Start() error {
 	router := mux.NewRouter()
 	s.setupRoutes(router)
 
+	s.mu.Lock()
 	s.server = &http.Server{
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 	}
+	server := s.server
+	listener := s.listener
+	s.mu.Unlock()
 
-	return s.server.Serve(s.listener)
+	return server.Serve(listener)
 }
 
 // Stop gracefully shuts down the server and cleans up resources.
 func (s *Server) Stop() {
-	if s.server != nil {
+	s.mu.Lock()
+	server := s.server
+	listener := s.listener
+	s.mu.Unlock()
+
+	if server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := s.server.Shutdown(ctx); err != nil {
+		if err := server.Shutdown(ctx); err != nil {
 			slog.Error("Error shutting down server", "error", err)
 		}
 	}
-	if s.listener != nil {
-		if err := s.listener.Close(); err != nil {
+	if listener != nil {
+		if err := listener.Close(); err != nil {
 			slog.Error("Error closing listener", "error", err)
 		}
 	}
@@ -147,6 +162,28 @@ func (s *Server) Stop() {
 			slog.Error("Failed to remove socket file", "path", s.socketPath, "error", err)
 		}
 	}
+}
+
+// Addr returns the actual network address the server is listening on.
+// Returns nil if the server is not started or is using a Unix socket.
+func (s *Server) Addr() net.Addr {
+	s.mu.RLock()
+	listener := s.listener
+	s.mu.RUnlock()
+
+	if listener != nil && !s.useSocket {
+		return listener.Addr()
+	}
+	return nil
+}
+
+// SocketPath returns the Unix socket path if the server is using a socket.
+// Returns empty string if the server is using HTTP.
+func (s *Server) SocketPath() string {
+	if s.useSocket {
+		return s.socketPath
+	}
+	return ""
 }
 
 func (s *Server) setupRoutes(router *mux.Router) {
@@ -188,7 +225,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 // MCP endpoint handlers
-func (s *Server) handleMCPTools(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMCPTools(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// TODO: Implement MCP tools listing
 	w.WriteHeader(http.StatusOK)
@@ -197,17 +234,18 @@ func (s *Server) handleMCPTools(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleMCPToolCall(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMCPToolCall(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// TODO: Implement MCP tool calling
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(`{"result":null,"message":"MCP tool call endpoint - implementation pending"}`)); err != nil {
+	message := `{"result":null,"message":"MCP tool call endpoint - implementation pending"}`
+	if _, err := w.Write([]byte(message)); err != nil {
 		slog.Error("Error writing MCP tool call response", "error", err)
 	}
 }
 
 // Internal endpoint handlers (only available on HTTP, not socket)
-func (s *Server) handleInternalStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleInternalStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	status := map[string]interface{}{
 		"service":     "modelplex",
@@ -216,7 +254,7 @@ func (s *Server) handleInternalStatus(w http.ResponseWriter, r *http.Request) {
 		"providers":   len(s.config.Providers),
 		"mcp_servers": len(s.config.MCP.Servers),
 	}
-	
+
 	// Add address information
 	if s.httpAddr != "" {
 		status["address"] = s.httpAddr
@@ -224,14 +262,14 @@ func (s *Server) handleInternalStatus(w http.ResponseWriter, r *http.Request) {
 		status["host"] = s.host
 		status["port"] = s.port
 	}
-	
+
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		slog.Error("Error writing internal status response", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-func (s *Server) handleInternalConfig(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleInternalConfig(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// Return sanitized config (without API keys)
 	sanitizedConfig := map[string]interface{}{
@@ -258,7 +296,7 @@ func (s *Server) handleInternalConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleInternalMetrics(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleInternalMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// TODO: Implement metrics collection
 	metrics := map[string]interface{}{

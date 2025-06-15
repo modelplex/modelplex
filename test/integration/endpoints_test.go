@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -23,22 +24,51 @@ func getAvailablePort(t *testing.T) int {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	_ = listener.Close() // Ignore close error for port allocation helper
 	return port
 }
 
 // startServerWithErrgroup starts a server using errgroup and waits for it to be ready
-func startServerWithErrgroup(t *testing.T, srv *server.Server) (*errgroup.Group, func()) {
+func startServerWithErrgroup(t *testing.T, srv *server.Server) (cleanup func()) {
 	eg, _ := errgroup.WithContext(context.Background())
 	eg.Go(srv.Start)
-	
-	// Instead of sleep, we could implement a health check here
-	// For now, keeping a minimal delay
-	time.Sleep(50 * time.Millisecond)
-	
-	return eg, func() {
+
+	// Wait for server to be ready
+	waitForServerReady(t, srv)
+
+	return func() {
 		srv.Stop()
 		_ = eg.Wait() // Ignore expected shutdown errors
+	}
+}
+
+// waitForServerReady waits for the server to be ready by checking its health endpoint or socket
+func waitForServerReady(t *testing.T, srv *server.Server) {
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatal("Timeout waiting for server to be ready")
+		case <-ticker.C:
+			if srv.SocketPath() != "" {
+				// Unix socket server - check if socket file exists
+				if _, err := os.Stat(srv.SocketPath()); err == nil {
+					return
+				}
+			} else if addr := srv.Addr(); addr != nil {
+				// HTTP server - check health endpoint
+				resp, err := http.Get(fmt.Sprintf("http://%s/health", addr))
+				if err == nil {
+					_ = resp.Body.Close() // Ignore close error in readiness check
+					if resp.StatusCode == http.StatusOK {
+						return
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -84,7 +114,7 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	port := getAvailablePort(t)
 	srv := server.NewWithHTTPAddress(cfg, fmt.Sprintf("127.0.0.1:%d", port))
 
-	_, cleanup := startServerWithErrgroup(t, srv)
+	cleanup := startServerWithErrgroup(t, srv)
 	defer cleanup()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -259,7 +289,7 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 	// Start socket server
 	srv := server.NewWithSocket(cfg, socketPath)
 
-	_, cleanup := startServerWithErrgroup(t, srv)
+	cleanup := startServerWithErrgroup(t, srv)
 	defer cleanup()
 
 	// Create HTTP client for Unix socket
@@ -304,7 +334,7 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
-				assert.Equal(t, http.StatusNotFound, resp.StatusCode, 
+				assert.Equal(t, http.StatusNotFound, resp.StatusCode,
 					"Internal endpoint %s should not be available via socket", endpoint)
 			})
 		}
@@ -358,12 +388,12 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 		client := &http.Client{Timeout: 5 * time.Second}
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-		_, cleanup := startServerWithErrgroup(t, srv)
+		cleanup := startServerWithErrgroup(t, srv)
 		defer cleanup()
 
 		// Test common endpoints
 		commonEndpoints := []string{"/health", "/models/v1/models", "/v1/models"}
-		
+
 		for _, endpoint := range commonEndpoints {
 			t.Run("Common Endpoint: "+endpoint, func(t *testing.T) {
 				resp, err := client.Get(baseURL + endpoint)
@@ -371,7 +401,7 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 				defer resp.Body.Close()
 
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				
+
 				// Verify response has content
 				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
@@ -404,12 +434,12 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 		}
 		baseURL := "http://unix"
 
-		_, cleanup := startServerWithErrgroup(t, srv)
+		cleanup := startServerWithErrgroup(t, srv)
 		defer cleanup()
 
 		// Test common endpoints
 		commonEndpoints := []string{"/health", "/models/v1/models", "/v1/models"}
-		
+
 		for _, endpoint := range commonEndpoints {
 			t.Run("Common Endpoint: "+endpoint, func(t *testing.T) {
 				resp, err := client.Get(baseURL + endpoint)
@@ -417,7 +447,7 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 				defer resp.Body.Close()
 
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				
+
 				// Verify response has content
 				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
