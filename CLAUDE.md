@@ -45,6 +45,7 @@
   - Channels for coordination
   - `context.WithTimeout()` for timeouts instead of sleeps
   - low-level synchronization primitives like `Mutex` only if all else fails
+  - **Asynchronous startup pattern**: Use anonymous function with mutex for initialization phase, then return error channel for non-blocking operation (see `Server.Start()`)
 
 ### 4. Testing Requirements
 - **No sleeps in tests** - use synchronization primitives instead
@@ -147,6 +148,41 @@ servers = [
 - **.dockerignore** - exclude development files
 
 ## Security & Performance
+
+### Asynchronous Server Startup Pattern
+The `Server.Start()` method demonstrates a clean pattern for asynchronous operations that need synchronization during initialization:
+
+```go
+func (s *Server) Start() <-chan error {
+    done := make(chan error, 1)
+    err := func() (err error) {
+        s.startMtx.Lock()
+        defer s.startMtx.Unlock()
+        
+        // Synchronous initialization logic here
+        // Return early if validation fails
+        
+        return nil
+    }()
+    if err != nil {
+        done <- err
+        return done
+    }
+    
+    // Asynchronous operation continues...
+    go func() {
+        done <- s.server.Serve(s.listener)
+    }()
+    return done
+}
+```
+
+**Benefits:**
+- Clean mutex acquisition/release with anonymous function and defer
+- Early error return without blocking
+- Non-blocking startup with immediate error feedback via channel
+- Allows callers to use `select` for timeout handling
+- **Eliminates sleeps/timeouts in tests** - tests can wait on the error channel or use `select` with `default` for immediate status checks
 
 ## Future Development
 
