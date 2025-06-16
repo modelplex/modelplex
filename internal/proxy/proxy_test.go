@@ -284,43 +284,41 @@ func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
 	proxy := New(mockMux)
 
 	// Set up mock expectations for streaming
-	mockMux.On("ChatCompletionStream", mock.Anything, "gpt-4", mock.Anything).Return(
-		func(ctx context.Context, model string, messages []map[string]interface{}) <-chan interface{} {
-			// Create a channel for streaming chunks
-			streamChan := make(chan interface{}, 3)
-			
-			// Mock streaming response chunks
-			streamChan <- map[string]interface{}{
-				"id":      "chatcmpl-123",
-				"object":  "chat.completion.chunk",
-				"created": 1677652288,
-				"model":   "gpt-4",
-				"choices": []interface{}{
-					map[string]interface{}{
-						"delta": map[string]interface{}{
-							"content": "Hello",
-						},
-						"index": 0,
-					},
+	// Create a channel for streaming chunks
+	streamChan := make(chan interface{}, 3)
+	
+	// Mock streaming response chunks
+	streamChan <- map[string]interface{}{
+		"id":      "chatcmpl-123",
+		"object":  "chat.completion.chunk",
+		"created": 1677652288,
+		"model":   "gpt-4",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"delta": map[string]interface{}{
+					"content": "Hello",
 				},
-			}
-			streamChan <- map[string]interface{}{
-				"id":      "chatcmpl-123",
-				"object":  "chat.completion.chunk",
-				"created": 1677652288,
-				"model":   "gpt-4",
-				"choices": []interface{}{
-					map[string]interface{}{
-						"delta": map[string]interface{}{
-							"content": " World!",
-						},
-						"index": 0,
-					},
+				"index": 0,
+			},
+		},
+	}
+	streamChan <- map[string]interface{}{
+		"id":      "chatcmpl-123",
+		"object":  "chat.completion.chunk",
+		"created": 1677652288,
+		"model":   "gpt-4",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"delta": map[string]interface{}{
+					"content": " World!",
 				},
-			}
-			close(streamChan)
-			return streamChan
-		}, nil)
+				"index": 0,
+			},
+		},
+	}
+	close(streamChan)
+	
+	mockMux.On("ChatCompletionStream", mock.Anything, "gpt-4", mock.Anything).Return(streamChan, nil)
 
 	// Create streaming request
 	requestBody := map[string]interface{}{
@@ -372,38 +370,36 @@ func TestOpenAIProxy_HandleCompletions_Streaming(t *testing.T) {
 	mockMux := &MockMultiplexer{}
 	proxy := New(mockMux)
 
-	mockMux.On("CompletionStream", mock.Anything, "gpt-3.5-turbo-instruct", "Complete this sentence").Return(
-		func(ctx context.Context, model, prompt string) <-chan interface{} {
-			// Create a channel for streaming chunks
-			streamChan := make(chan interface{}, 2)
-			
-			streamChan <- map[string]interface{}{
-				"id":      "cmpl-123",
-				"object":  "text_completion",
-				"created": 1677652288,
-				"model":   "gpt-3.5-turbo-instruct",
-				"choices": []interface{}{
-					map[string]interface{}{
-						"text":  " with something",
-						"index": 0,
-					},
-				},
-			}
-			streamChan <- map[string]interface{}{
-				"id":      "cmpl-123",
-				"object":  "text_completion",
-				"created": 1677652288,
-				"model":   "gpt-3.5-turbo-instruct",
-				"choices": []interface{}{
-					map[string]interface{}{
-						"text":  " interesting.",
-						"index": 0,
-					},
-				},
-			}
-			close(streamChan)
-			return streamChan
-		}, nil)
+	// Create a channel for streaming chunks
+	streamChan := make(chan interface{}, 2)
+	
+	streamChan <- map[string]interface{}{
+		"id":      "cmpl-123",
+		"object":  "text_completion",
+		"created": 1677652288,
+		"model":   "gpt-3.5-turbo-instruct",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"text":  " with something",
+				"index": 0,
+			},
+		},
+	}
+	streamChan <- map[string]interface{}{
+		"id":      "cmpl-123",
+		"object":  "text_completion",
+		"created": 1677652288,
+		"model":   "gpt-3.5-turbo-instruct",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"text":  " interesting.",
+				"index": 0,
+			},
+		},
+	}
+	close(streamChan)
+	
+	mockMux.On("CompletionStream", mock.Anything, "gpt-3.5-turbo-instruct", "Complete this sentence").Return(streamChan, nil)
 
 	requestBody := map[string]interface{}{
 		"model":  "gpt-3.5-turbo-instruct",

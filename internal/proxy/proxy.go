@@ -67,7 +67,7 @@ func (p *OpenAIProxy) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		streamChan, err := p.mux.ChatCompletionStream(r.Context(), model, req.Messages)
 		if err != nil {
 			slog.Error("Chat completion stream failed", "error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 		p.writeSSEResponse(w, streamChan, "chat completion stream")
@@ -92,7 +92,7 @@ func (p *OpenAIProxy) HandleCompletions(w http.ResponseWriter, r *http.Request) 
 		streamChan, err := p.mux.CompletionStream(r.Context(), model, req.Prompt)
 		if err != nil {
 			slog.Error("Completion stream failed", "error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
 			return
 		}
 		p.writeSSEResponse(w, streamChan, "completion stream")
@@ -127,7 +127,7 @@ func (p *OpenAIProxy) HandleModels(w http.ResponseWriter, _ *http.Request) {
 
 func (p *OpenAIProxy) decodeJSONRequest(r *http.Request, req interface{}, w http.ResponseWriter) error {
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid JSON: %v", err))
 		return err
 	}
 	return nil
@@ -136,7 +136,7 @@ func (p *OpenAIProxy) decodeJSONRequest(r *http.Request, req interface{}, w http
 func (p *OpenAIProxy) handleResponse(w http.ResponseWriter, result interface{}, err error, operation string) {
 	if err != nil {
 		slog.Error("Operation failed", "operation", operation, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	p.writeJSONResponse(w, result, operation)
@@ -146,7 +146,7 @@ func (p *OpenAIProxy) writeJSONResponse(w http.ResponseWriter, data interface{},
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		slog.Error("Failed to encode response", "type", responseType, "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		// Can't write error response here as headers are already sent
 		return
 	}
 }
