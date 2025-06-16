@@ -35,14 +35,14 @@ type Server struct {
 
 // New creates a new server instance with the given configuration and socket path.
 func New(cfg *config.Config, socketPath string) *Server {
-	mux := multiplexer.New(cfg.Providers)
-	proxy := proxy.New(mux)
+	muxer := multiplexer.New(cfg.Providers)
+	pr := proxy.New(muxer)
 
 	return &Server{
 		config:     cfg,
 		socketPath: socketPath,
-		mux:        mux,
-		proxy:      proxy,
+		mux:        muxer,
+		proxy:      pr,
 	}
 }
 
