@@ -40,13 +40,18 @@ func TestHTTPServerByDefault(t *testing.T) {
 
 	// Start server using errgroup
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(srv.Start)
+	eg.Go(func() error {
+		done := srv.Start()
+		return <-done
+	})
 
 	// Wait for server to be ready
 	waitForHTTPServerReady(t, srv)
 
 	// Stop server
-	srv.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Stop(ctx)
 
 	// Wait for server to finish
 	_ = eg.Wait() // Ignore error as we expect server to be stopped
@@ -77,13 +82,18 @@ func TestSocketServerWhenSpecified(t *testing.T) {
 
 	// Start server using errgroup
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(srv.Start)
+	eg.Go(func() error {
+		done := srv.Start()
+		return <-done
+	})
 
 	// Wait for server to be ready
 	waitForSocketServerReady(t, srv)
 
 	// Stop server
-	srv.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Stop(ctx)
 
 	// Wait for server to finish
 	_ = eg.Wait() // Ignore error as we expect server to be stopped
@@ -125,7 +135,10 @@ func TestInternalStatusEndpoint(t *testing.T) {
 
 	// Start server using errgroup
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(srv.Start)
+	eg.Go(func() error {
+		done := srv.Start()
+		return <-done
+	})
 
 	// Wait for server to be ready
 	waitForHTTPServerReady(t, srv)
@@ -167,7 +180,9 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	}
 
 	// Stop server
-	srv.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Stop(ctx)
 
 	// Wait for server to finish
 	_ = eg.Wait() // Ignore error as we expect server to be stopped

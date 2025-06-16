@@ -30,13 +30,18 @@ func getAvailablePort(t *testing.T) int {
 // startServerWithErrgroup starts a server using errgroup and waits for it to be ready
 func startServerWithErrgroup(t *testing.T, srv *server.Server) (cleanup func()) {
 	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(srv.Start)
+	eg.Go(func() error {
+		done := srv.Start()
+		return <-done
+	})
 
 	// Wait for server to be ready
 	waitForServerReady(t, srv)
 
 	return func() {
-		srv.Stop()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Stop(ctx)
 		_ = eg.Wait() // Ignore expected shutdown errors
 	}
 }
