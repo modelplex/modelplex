@@ -180,7 +180,9 @@ jobs:
         images: ghcr.io/${{ github.repository }}
         tags: |
           type=ref,event=branch
-          type=sha,prefix={{branch}}-,format=short,length=10
+          type=ref,event=pr,prefix=pr-
+          type=sha,prefix={{branch}}-,format=short,length=10,enable={{is_default_branch}}
+          type=sha,prefix=pr-,format=short,length=10,enable=${{ github.event_name == 'pull_request' }}
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build Docker image
