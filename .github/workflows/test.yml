@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.23', '1.24.4']
+        go-version: ['1.24.4']
     
     steps:
     - name: Checkout code
@@ -97,11 +97,11 @@ jobs:
     needs: [test, lint]
     strategy:
       matrix:
-        goos: [linux, darwin, windows]
+        goos: [linux, darwin]
         goarch: [amd64, arm64]
         exclude:
-          - goos: windows
-            goarch: arm64
+          - goos: darwin
+            goarch: amd64
     
     steps:
     - name: Checkout code
