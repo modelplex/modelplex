@@ -39,7 +39,7 @@ type Server struct {
 	server     *http.Server
 	mux        *multiplexer.ModelMultiplexer
 	proxy      *proxy.OpenAIProxy
-	startMtx   sync.Mutex
+	startMtx   sync.RWMutex
 	started    chan struct{}
 }
 
@@ -191,6 +191,9 @@ func (s *Server) Stop(ctx context.Context) {
 // Addr returns the actual network address the server is listening on.
 // Returns nil if the server is not started or is using a Unix socket.
 func (s *Server) Addr() net.Addr {
+	s.startMtx.RLock()
+	defer s.startMtx.RUnlock()
+
 	if s.useSocket {
 		return nil
 	}
@@ -205,6 +208,9 @@ func (s *Server) Addr() net.Addr {
 // SocketPath returns the Unix socket path if the server is using a socket.
 // Returns empty string if the server is using HTTP.
 func (s *Server) SocketPath() string {
+	s.startMtx.RLock()
+	defer s.startMtx.RUnlock()
+
 	if s.useSocket {
 		return s.socketPath
 	}
