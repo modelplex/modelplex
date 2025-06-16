@@ -24,7 +24,6 @@ func New(configs []config.Provider) *ModelMultiplexer {
 	}
 
 	for _, cfg := range configs {
-		cfg := cfg // Create a copy to avoid closure issues
 		provider := providers.NewProvider(&cfg)
 		if provider != nil {
 			m.providers = append(m.providers, provider)

@@ -70,12 +70,12 @@ func TestNewOpenAIProvider(t *testing.T) {
 			}
 			defer func() {
 				for key := range tt.envVars {
-					os.Unsetenv(key)
+					_ = os.Unsetenv(key)
 				}
 			}()
 
-			config := tt.config // Create copy to avoid memory aliasing
-			provider := NewOpenAIProvider(&config)
+			cfg := tt.config // Create copy to avoid memory aliasing
+			provider := NewOpenAIProvider(&cfg)
 
 			assert.Equal(t, tt.expected.name, provider.Name())
 			assert.Equal(t, tt.expected.baseURL, provider.baseURL)
