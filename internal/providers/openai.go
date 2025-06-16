@@ -5,6 +5,7 @@
 package providers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -117,4 +118,98 @@ func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, paylo
 	}
 
 	return result, nil
+}
+
+// ChatCompletionStream performs a streaming chat completion request.
+func (p *OpenAIProvider) ChatCompletionStream(
+	ctx context.Context, model string, messages []map[string]interface{},
+) (<-chan interface{}, error) {
+	payload := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+		"stream":   true,
+	}
+
+	return p.makeStreamingRequest(ctx, "/chat/completions", payload)
+}
+
+// CompletionStream performs a streaming completion request.
+func (p *OpenAIProvider) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	payload := map[string]interface{}{
+		"model":  model,
+		"prompt": prompt,
+		"stream": true,
+	}
+
+	return p.makeStreamingRequest(ctx, "/completions", payload)
+}
+
+func (p *OpenAIProvider) makeStreamingRequest(ctx context.Context, endpoint string, payload interface{}) (<-chan interface{}, error) {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Create channel for streaming chunks
+	streamChan := make(chan interface{})
+
+	// Start goroutine to read SSE stream
+	go func() {
+		defer close(streamChan)
+		defer resp.Body.Close()
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			
+			// Skip empty lines
+			if line == "" {
+				continue
+			}
+			
+			// Handle SSE data lines
+			if strings.HasPrefix(line, "data: ") {
+				data := strings.TrimPrefix(line, "data: ")
+				
+				// Check for end marker
+				if data == "[DONE]" {
+					return
+				}
+				
+				// Parse JSON chunk
+				var chunk interface{}
+				if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+					continue // Skip malformed chunks
+				}
+				
+				// Send chunk to channel
+				select {
+				case streamChan <- chunk:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return streamChan, nil
 }
