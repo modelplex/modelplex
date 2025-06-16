@@ -8,7 +8,6 @@
 package providers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -196,76 +195,19 @@ func (p *AnthropicProvider) CompletionStream(ctx context.Context, model, prompt 
 }
 
 func (p *AnthropicProvider) makeStreamingRequest(ctx context.Context, endpoint string, payload interface{}) (<-chan interface{}, error) {
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
+	config := StreamingRequestConfig{
+		BaseURL:  p.baseURL,
+		Endpoint: endpoint,
+		Payload:  payload,
+		Headers: map[string]string{
+			"x-api-key":         p.apiKey,
+			"anthropic-version": "2023-06-01",
+		},
+		UseSSE:      true,
+		Transformer: p.transformStreamingResponse,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", p.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Create channel for streaming chunks
-	streamChan := make(chan interface{})
-
-	// Start goroutine to read SSE stream
-	go func() {
-		defer close(streamChan)
-		defer resp.Body.Close()
-
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			
-			// Skip empty lines
-			if line == "" {
-				continue
-			}
-			
-			// Handle SSE data lines
-			if strings.HasPrefix(line, "data: ") {
-				data := strings.TrimPrefix(line, "data: ")
-				
-				// Check for end marker
-				if data == "[DONE]" {
-					return
-				}
-				
-				// Parse JSON chunk
-				var chunk interface{}
-				if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-					continue // Skip malformed chunks
-				}
-				
-				// Transform Anthropic response to OpenAI format for consistency
-				if transformedChunk := p.transformStreamingResponse(chunk); transformedChunk != nil {
-					select {
-					case streamChan <- transformedChunk:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-		}
-	}()
-
-	return streamChan, nil
+	return makeStreamingRequest(ctx, p.client, config)
 }
 
 // transformStreamingResponse transforms Anthropic streaming response to OpenAI format

@@ -8,14 +8,12 @@
 package providers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/modelplex/modelplex/internal/config"
 )
@@ -140,64 +138,16 @@ func (p *OllamaProvider) CompletionStream(ctx context.Context, model, prompt str
 }
 
 func (p *OllamaProvider) makeStreamingRequest(ctx context.Context, endpoint string, payload interface{}) (<-chan interface{}, error) {
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
+	config := StreamingRequestConfig{
+		BaseURL:  p.baseURL,
+		Endpoint: endpoint,
+		Payload:  payload,
+		Headers:  map[string]string{}, // Ollama doesn't require authentication
+		UseSSE:   false,               // Ollama uses line-by-line JSON, not SSE
+		Transformer: p.transformStreamingResponse,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Create channel for streaming chunks
-	streamChan := make(chan interface{})
-
-	// Start goroutine to read streaming response
-	go func() {
-		defer close(streamChan)
-		defer resp.Body.Close()
-
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			
-			// Skip empty lines
-			if line == "" {
-				continue
-			}
-			
-			// Ollama streams JSON objects line by line (not SSE format)
-			var chunk interface{}
-			if err := json.Unmarshal([]byte(line), &chunk); err != nil {
-				continue // Skip malformed chunks
-			}
-			
-			// Transform Ollama response to OpenAI format for consistency
-			if transformedChunk := p.transformStreamingResponse(chunk); transformedChunk != nil {
-				select {
-				case streamChan <- transformedChunk:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-
-	return streamChan, nil
+	return makeStreamingRequest(ctx, p.client, config)
 }
 
 // transformStreamingResponse transforms Ollama streaming response to OpenAI format
