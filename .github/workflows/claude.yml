@@ -24,7 +24,7 @@ jobs:
       issues: read
       id-token: write
     steps:
-      - name: Check if user is organization admin
+      - name: Check if user is repository admin
         id: check-admin
         run: |
           # Get the username from the event
@@ -38,21 +38,22 @@ jobs:
             USERNAME="${{ github.event.issue.user.login }}"
           fi
           
-          echo "Checking admin status for user: $USERNAME"
+          echo "Checking repository admin status for user: $USERNAME"
           
-          # Check if user is an admin of the modelplex organization
-          ADMIN_STATUS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/orgs/modelplex/members/$USERNAME/membership" | \
-            jq -r '.role // "none"')
+          # Check if user has admin permissions on the repository
+          PERMISSION_RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/collaborators/$USERNAME/permission")
           
-          echo "Admin status: $ADMIN_STATUS"
+          PERMISSION_LEVEL=$(echo "$PERMISSION_RESPONSE" | jq -r '.permission // "none"')
           
-          if [ "$ADMIN_STATUS" = "admin" ]; then
+          echo "Permission level: $PERMISSION_LEVEL"
+          
+          if [ "$PERMISSION_LEVEL" = "admin" ]; then
             echo "is_admin=true" >> $GITHUB_OUTPUT
-            echo "User $USERNAME is an organization admin"
+            echo "User $USERNAME has admin permissions on the repository"
           else
             echo "is_admin=false" >> $GITHUB_OUTPUT
-            echo "User $USERNAME is not an organization admin"
+            echo "User $USERNAME does not have admin permissions on the repository"
             exit 1
           fi
         env:
