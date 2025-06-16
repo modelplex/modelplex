@@ -86,3 +86,25 @@ func (m *ModelMultiplexer) Completion(ctx context.Context, model, prompt string)
 
 	return provider.Completion(ctx, model, prompt)
 }
+
+// ChatCompletionStream routes a streaming chat completion request to the appropriate provider.
+func (m *ModelMultiplexer) ChatCompletionStream(
+	ctx context.Context, model string, messages []map[string]interface{},
+) (<-chan interface{}, error) {
+	provider, err := m.GetProvider(model)
+	if err != nil {
+		return nil, err
+	}
+
+	return provider.ChatCompletionStream(ctx, model, messages)
+}
+
+// CompletionStream routes a streaming completion request to the appropriate provider.
+func (m *ModelMultiplexer) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	provider, err := m.GetProvider(model)
+	if err != nil {
+		return nil, err
+	}
+
+	return provider.CompletionStream(ctx, model, prompt)
+}
