@@ -99,19 +99,21 @@ linters:
     - whitespace
 
   exclusions:
-    - paths:
-        - "**/*_test.go"
-        - "**/test/**"
-      linters:
+    paths:
+      "**/*_test.go":
         - mnd
         - funlen
         - lll
-    - source: "^//go:generate "
-      linters:
+      "**/test/**":
+        - mnd
+        - funlen
         - lll
-    - texts:
-        - "Error return value of .((os\\\\.)?std(out|err)\\\\..*|.*Close|.*Flush|os\\\\.Remove(All)?|.*printf?|os\\\\.(Un)?Setenv). is not checked"
-        - "should check returned error before deferring"
+    sources:
+      "^//go:generate ":
+        - lll
+    texts:
+      "Error return value of .((os\\\\.)?std(out|err)\\\\..*|.*Close|.*Flush|os\\\\.Remove(All)?|.*printf?|os\\\\.(Un)?Setenv). is not checked": []
+      "should check returned error before deferring": []
 
 output:
   severity:
