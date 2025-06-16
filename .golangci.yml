@@ -1,9 +1,12 @@
 # golangci-lint configuration for Modelplex
+version: "2"
+
 run:
   timeout: 5m
-  go: '1.21'
+  go: '1.24.4'
 
-linters-settings:
+linters:
+  settings:
   govet:
     shadow: true
   revive:
@@ -33,8 +36,6 @@ linters-settings:
           - github.com/pelletier/go-toml/v2
   gocyclo:
     min-complexity: 15
-  maligned:
-    suggest-new: true
   dupl:
     threshold: 100
   goconst:
@@ -62,8 +63,7 @@ linters-settings:
     lines: 100
     statements: 50
 
-linters:
-  disable-all: true
+  default: none
   enable:
     - bodyclose
     - unused
@@ -94,36 +94,25 @@ linters:
     - rowserrcheck
     - staticcheck
     - stylecheck
-    - typecheck
     - unconvert
     - unparam
     - whitespace
 
-issues:
-  exclude-rules:
-    - path: _test\.go
+  exclusions:
+    - paths:
+        - "**/*_test.go"
+        - "**/test/**"
       linters:
         - mnd
         - funlen
         - lll
-    - path: test/
+    - source: "^//go:generate "
       linters:
-        - mnd
-        - funlen
         - lll
-    - linters:
-        - lll
-      source: "^//go:generate "
+    - texts:
+        - "Error return value of .((os\\\\.)?std(out|err)\\\\..*|.*Close|.*Flush|os\\\\.Remove(All)?|.*printf?|os\\\\.(Un)?Setenv). is not checked"
+        - "should check returned error before deferring"
 
-  exclude-use-default: false
-  exclude:
-    # errcheck: Almost all programs ignore errors on these functions and in most cases it's ok
-    - Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*printf?|os\.(Un)?Setenv). is not checked
-    - should check returned error before deferring
-
-  max-issues-per-linter: 0
-  max-same-issues: 0
-
-severity:
-  default-severity: error
-  case-sensitive: false
+output:
+  severity:
+    default: error
