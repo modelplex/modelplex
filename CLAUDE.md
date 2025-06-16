@@ -26,6 +26,7 @@
 
 ### 2. Branch & Development Process
 1. **Create branch**: `{gh username}/{feature-name}` format
+1.5 **COMMIT EARLY AND OFTEN**: Commit to your branch any time you complete a single work item, and push as soon as you've committed.
 2. **Code following standards**: See Code Quality section below
 3. **Run tests**: `go test -v ./...` and `go test -v -race ./...`
 4. **Run linting**: `golangci-lint run`, `gofmt -s -w .`, `goimports -w .`
