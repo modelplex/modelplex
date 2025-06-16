@@ -15,6 +15,10 @@
 - **Security-first** approach
 - **OpenAI API compatibility** maintained
 
+#### PR Guidelines
+
+- **Docker Testing**: Include `[test-docker]` in your PR title to trigger Docker build and test workflows for non-main branch PRs. This is useful when testing Docker-related changes before merging to main.
+
 ### Testing
 
 ```bash

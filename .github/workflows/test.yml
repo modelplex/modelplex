@@ -181,9 +181,11 @@ jobs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr,prefix=pr-
-          type=sha,prefix={{branch}}-,format=short,length=10,enable={{is_default_branch}}
-          type=sha,prefix=pr-,format=short,length=10,enable=${{ github.event_name == 'pull_request' }}
+          type=sha,prefix={{branch}}-,format=short,enable={{is_default_branch}}
+          type=sha,prefix=pr-,format=short,enable=${{ github.event_name == 'pull_request' }}
           type=raw,value=latest,enable={{is_default_branch}}
+      env:
+        DOCKER_METADATA_SHORT_SHA_LENGTH: 10
 
     - name: Build Docker image
       uses: docker/build-push-action@v6
@@ -203,8 +205,8 @@ jobs:
           SHORT_SHA=$(git rev-parse --short=10 ${{ github.sha }})
           IMAGE_TAG="ghcr.io/${{ github.repository }}:main-${SHORT_SHA}"
         else
-          # For PR builds, use the first tag from metadata
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          # For PR builds, use the pr-<PR_ID> tag
+          IMAGE_TAG="ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}"
         fi
         echo "Testing Docker image: $IMAGE_TAG"
         docker run --rm $IMAGE_TAG --version
