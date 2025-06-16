@@ -318,7 +318,9 @@ func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
 	}
 	close(streamChan)
 	
-	mockMux.On("ChatCompletionStream", mock.Anything, "gpt-4", mock.Anything).Return(streamChan, nil)
+	// Convert to receive-only channel
+	readOnlyChan := (<-chan interface{})(streamChan)
+	mockMux.On("ChatCompletionStream", mock.Anything, "gpt-4", mock.Anything).Return(readOnlyChan, nil)
 
 	// Create streaming request
 	requestBody := map[string]interface{}{
@@ -399,7 +401,9 @@ func TestOpenAIProxy_HandleCompletions_Streaming(t *testing.T) {
 	}
 	close(streamChan)
 	
-	mockMux.On("CompletionStream", mock.Anything, "gpt-3.5-turbo-instruct", "Complete this sentence").Return(streamChan, nil)
+	// Convert to receive-only channel  
+	readOnlyChan := (<-chan interface{})(streamChan)
+	mockMux.On("CompletionStream", mock.Anything, "gpt-3.5-turbo-instruct", "Complete this sentence").Return(readOnlyChan, nil)
 
 	requestBody := map[string]interface{}{
 		"model":  "gpt-3.5-turbo-instruct",
