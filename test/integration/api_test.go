@@ -59,10 +59,7 @@ func TestIntegration_FullAPIFlow(t *testing.T) {
 	default:
 	}
 
-	// Wait for server to be ready
-	if err := srv.WaitReady(5 * time.Second); err != nil {
-		t.Fatal("Timeout waiting for socket server to start:", err)
-	}
+	// Server is ready since Start() completed successfully
 
 	// Verify socket exists
 	_, err := os.Stat(socketPath)

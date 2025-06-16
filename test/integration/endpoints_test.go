@@ -37,21 +37,13 @@ func startServer(t *testing.T, srv *server.Server) (cleanup func()) {
 	default:
 	}
 
-	// Wait for server to be ready
-	waitForServerReady(t, srv)
+	// Server is ready since Start() completed successfully
 
 	return func() {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		srv.Stop(ctx)
 		<-done // Wait for server to finish
-	}
-}
-
-// waitForServerReady waits for the server to be ready using the Ready() channel
-func waitForServerReady(t *testing.T, srv *server.Server) {
-	if err := srv.WaitReady(5 * time.Second); err != nil {
-		t.Fatal("Timeout waiting for server to be ready:", err)
 	}
 }
 

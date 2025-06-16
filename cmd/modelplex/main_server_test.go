@@ -47,8 +47,7 @@ func TestHTTPServerByDefault(t *testing.T) {
 	default:
 	}
 
-	// Wait for server to be ready
-	waitForHTTPServerReady(t, srv)
+	// Server is ready since Start() completed successfully
 
 	// Stop server
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -90,8 +89,7 @@ func TestSocketServerWhenSpecified(t *testing.T) {
 	default:
 	}
 
-	// Wait for server to be ready
-	waitForSocketServerReady(t, srv)
+	// Server is ready since Start() completed successfully
 
 	// Stop server
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -144,8 +142,7 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	default:
 	}
 
-	// Wait for server to be ready
-	waitForHTTPServerReady(t, srv)
+	// Server is ready since Start() completed successfully
 
 	// Test internal status endpoint
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("http://127.0.0.1:%d/_internal/status", port), http.NoBody)
@@ -188,18 +185,4 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	stopCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	srv.Stop(stopCtx)
-}
-
-// waitForHTTPServerReady waits for an HTTP server to be ready using the Ready() channel
-func waitForHTTPServerReady(t *testing.T, srv *server.Server) {
-	if err := srv.WaitReady(5 * time.Second); err != nil {
-		t.Fatal("Timeout waiting for HTTP server to be ready:", err)
-	}
-}
-
-// waitForSocketServerReady waits for a Unix socket server to be ready using the Ready() channel
-func waitForSocketServerReady(t *testing.T, srv *server.Server) {
-	if err := srv.WaitReady(5 * time.Second); err != nil {
-		t.Fatal("Timeout waiting for socket server to be ready:", err)
-	}
 }
