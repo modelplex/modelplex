@@ -32,7 +32,6 @@ type Server struct {
 	config     *config.Config
 	socketPath string
 	httpAddr   string
-	useSocket  bool
 	listener   net.Listener
 	server     *http.Server
 	mux        *multiplexer.ModelMultiplexer
@@ -49,7 +48,6 @@ func NewWithSocket(cfg *config.Config, socketPath string) *Server {
 	return &Server{
 		config:     cfg,
 		socketPath: socketPath,
-		useSocket:  true,
 		mux:        muxer,
 		proxy:      pr,
 		started:    make(chan struct{}),
@@ -62,12 +60,11 @@ func NewWithHTTPAddress(cfg *config.Config, addr string) *Server {
 	pr := proxy.New(muxer)
 
 	return &Server{
-		config:    cfg,
-		httpAddr:  addr,
-		useSocket: false,
-		mux:       muxer,
-		proxy:     pr,
-		started:   make(chan struct{}),
+		config:   cfg,
+		httpAddr: addr,
+		mux:      muxer,
+		proxy:    pr,
+		started:  make(chan struct{}),
 	}
 }
 
@@ -82,7 +79,7 @@ func (s *Server) Start() <-chan error {
 			return errors.New("server is already running")
 		}
 
-		if s.useSocket {
+		if s.socketPath != "" {
 			// Check if socket already exists and error if it does
 			if _, statErr := os.Stat(s.socketPath); statErr == nil {
 				return fmt.Errorf("socket file already exists: %s", s.socketPath)
@@ -151,7 +148,7 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 
 	// Clean up socket file if using socket
-	if s.useSocket {
+	if s.socketPath != "" {
 		if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
 			slog.Error("Error removing socket file", "path", s.socketPath, "error", err)
 		}
@@ -164,7 +161,7 @@ func (s *Server) Addr() net.Addr {
 	s.startMtx.RLock()
 	defer s.startMtx.RUnlock()
 
-	if s.useSocket {
+	if s.socketPath != "" {
 		return nil
 	}
 
@@ -181,7 +178,7 @@ func (s *Server) SocketPath() string {
 	s.startMtx.RLock()
 	defer s.startMtx.RUnlock()
 
-	if s.useSocket {
+	if s.socketPath != "" {
 		return s.socketPath
 	}
 	return ""
@@ -200,7 +197,7 @@ func (s *Server) setupRoutes(router *mux.Router) {
 	mcpV1.HandleFunc("/tools/{tool}/call", s.handleMCPToolCall).Methods("POST")
 
 	// Internal host-only RPC under /_internal (only available on HTTP, not socket)
-	if !s.useSocket {
+	if s.socketPath == "" {
 		internal := router.PathPrefix("/_internal").Subrouter()
 		internal.HandleFunc("/status", s.handleInternalStatus).Methods("GET")
 		internal.HandleFunc("/config", s.handleInternalConfig).Methods("GET")
