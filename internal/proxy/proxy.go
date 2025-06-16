@@ -62,18 +62,9 @@ func (p *OpenAIProxy) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 	model := p.normalizeModel(req.Model)
 
 	if req.Stream {
-		// Handle streaming request
-		streamChan, err := p.mux.ChatCompletionStream(r.Context(), model, req.Messages)
-		if err != nil {
-			slog.Error("Chat completion stream failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-		p.writeSSEResponse(w, streamChan, "chat completion stream")
+		p.handleChatCompletionStream(w, r, model, req.Messages)
 	} else {
-		// Handle non-streaming request
-		result, err := p.mux.ChatCompletion(r.Context(), model, req.Messages)
-		p.handleResponse(w, result, err, "chat completion")
+		p.handleChatCompletion(w, r, model, req.Messages)
 	}
 }
 
@@ -87,18 +78,9 @@ func (p *OpenAIProxy) HandleCompletions(w http.ResponseWriter, r *http.Request) 
 	model := p.normalizeModel(req.Model)
 
 	if req.Stream {
-		// Handle streaming request
-		streamChan, err := p.mux.CompletionStream(r.Context(), model, req.Prompt)
-		if err != nil {
-			slog.Error("Completion stream failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "Internal server error")
-			return
-		}
-		p.writeSSEResponse(w, streamChan, "completion stream")
+		p.handleCompletionStream(w, r, model, req.Prompt)
 	} else {
-		// Handle non-streaming request
-		result, err := p.mux.Completion(r.Context(), model, req.Prompt)
-		p.handleResponse(w, result, err, "completion")
+		p.handleCompletion(w, r, model, req.Prompt)
 	}
 }
 
@@ -122,6 +104,38 @@ func (p *OpenAIProxy) HandleModels(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	p.writeJSONResponse(w, response, "models")
+}
+
+func (p *OpenAIProxy) handleChatCompletionStream(w http.ResponseWriter, r *http.Request,
+	model string, messages []map[string]interface{}) {
+	streamChan, err := p.mux.ChatCompletionStream(r.Context(), model, messages)
+	if err != nil {
+		slog.Error("Chat completion stream failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	p.writeSSEResponse(w, streamChan, "chat completion stream")
+}
+
+func (p *OpenAIProxy) handleChatCompletion(w http.ResponseWriter, r *http.Request,
+	model string, messages []map[string]interface{}) {
+	result, err := p.mux.ChatCompletion(r.Context(), model, messages)
+	p.handleResponse(w, result, err, "chat completion")
+}
+
+func (p *OpenAIProxy) handleCompletionStream(w http.ResponseWriter, r *http.Request, model, prompt string) {
+	streamChan, err := p.mux.CompletionStream(r.Context(), model, prompt)
+	if err != nil {
+		slog.Error("Completion stream failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	p.writeSSEResponse(w, streamChan, "completion stream")
+}
+
+func (p *OpenAIProxy) handleCompletion(w http.ResponseWriter, r *http.Request, model, prompt string) {
+	result, err := p.mux.Completion(r.Context(), model, prompt)
+	p.handleResponse(w, result, err, "completion")
 }
 
 func (p *OpenAIProxy) decodeJSONRequest(r *http.Request, req interface{}, w http.ResponseWriter) error {

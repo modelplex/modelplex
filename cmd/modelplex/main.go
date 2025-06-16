@@ -16,6 +16,11 @@ import (
 	"github.com/modelplex/modelplex/internal/server"
 )
 
+const (
+	// shutdownTimeout is the maximum time to wait for graceful shutdown
+	shutdownTimeout = 5 * time.Second
+)
+
 // Options defines command line options
 type Options struct {
 	Config  string `short:"c" long:"config" default:"config.toml" description:"Path to configuration file"`
@@ -91,7 +96,7 @@ func main() {
 	<-sigChan
 
 	slog.Info("Shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	srv.Stop(ctx)
 }
