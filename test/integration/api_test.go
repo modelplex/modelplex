@@ -49,15 +49,17 @@ func TestIntegration_FullAPIFlow(t *testing.T) {
 	}
 
 	// Start test server
-	srv := server.New(cfg, socketPath)
+	srv := server.NewWithSocket(cfg, socketPath)
 	done := srv.Start()
 	select {
-	case err := <-done:
-		if err != nil && err != http.ErrServerClosed {
-			t.Fatalf("Failed to start server: %v", err)
+	case startErr := <-done:
+		if startErr != nil && startErr != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", startErr)
 		}
 	default:
 	}
+
+	// Server is ready since Start() completed successfully
 
 	// Verify socket exists
 	_, err := os.Stat(socketPath)
@@ -166,7 +168,7 @@ func TestIntegration_ConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			socketPath := filepath.Join(tmpDir, tt.name+".socket")
-			srv := server.New(tt.config, socketPath)
+			srv := server.NewWithSocket(tt.config, socketPath)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()

@@ -24,7 +24,8 @@ const (
 // Options defines command line options
 type Options struct {
 	Config  string `short:"c" long:"config" default:"config.toml" description:"Path to configuration file"`
-	Socket  string `short:"s" long:"socket" default:"./modelplex.socket" description:"Path to Unix socket"`
+	Socket  string `short:"s" long:"socket" description:"Path to Unix socket (optional, HTTP server used by default)"`
+	HTTP    string `long:"http" default:":41041" description:"HTTP server address in [HOST]:PORT format"`
 	Verbose bool   `short:"v" long:"verbose" description:"Enable verbose logging"`
 	Version bool   `long:"version" description:"Show version information"`
 }
@@ -75,11 +76,17 @@ func main() {
 	}
 
 	slog.Info("Loaded configuration", "file", opts.Config)
-	slog.Info("Starting server", "socket", opts.Socket)
 
-	srv := server.New(cfg, opts.Socket)
+	var srv *server.Server
+	if opts.Socket != "" {
+		slog.Info("Starting server", "socket", opts.Socket)
+		srv = server.NewWithSocket(cfg, opts.Socket)
+	} else {
+		slog.Info("Starting server", "address", opts.HTTP)
+		srv = server.NewWithHTTPAddress(cfg, opts.HTTP)
+	}
+
 	done := srv.Start()
-
 	select {
 	case err := <-done:
 		if err != nil {
@@ -89,7 +96,11 @@ func main() {
 	default:
 	}
 
-	slog.Info("Server started successfully", "socket", opts.Socket)
+	if opts.Socket != "" {
+		slog.Info("Server started successfully", "socket", opts.Socket)
+	} else {
+		slog.Info("Server started successfully", "address", opts.HTTP)
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
