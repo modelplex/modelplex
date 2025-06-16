@@ -12,7 +12,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/modelplex/modelplex/internal/config"
 	"github.com/modelplex/modelplex/internal/server"
@@ -27,22 +26,25 @@ func getAvailablePort(t *testing.T) int {
 	return port
 }
 
-// startServerWithErrgroup starts a server using errgroup and waits for it to be ready
-func startServerWithErrgroup(t *testing.T, srv *server.Server) (cleanup func()) {
-	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		done := srv.Start()
-		return <-done
-	})
+// startServer starts a server and waits for it to be ready
+func startServer(t *testing.T, srv *server.Server) (cleanup func()) {
+	done := srv.Start()
+	select {
+	case startErr := <-done:
+		if startErr != nil && startErr != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", startErr)
+		}
+	default:
+	}
 
 	// Wait for server to be ready
 	waitForServerReady(t, srv)
 
 	return func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		srv.Stop(ctx)
-		_ = eg.Wait() // Ignore expected shutdown errors
+		<-done // Wait for server to finish
 	}
 }
 
@@ -95,14 +97,15 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	port := getAvailablePort(t)
 	srv := server.NewWithHTTPAddress(cfg, fmt.Sprintf("127.0.0.1:%d", port))
 
-	cleanup := startServerWithErrgroup(t, srv)
+	cleanup := startServer(t, srv)
 	defer cleanup()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	t.Run("Health Check", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/health")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/health", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -117,7 +120,8 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("OpenAI Models Endpoint (New Structure)", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/models/v1/models")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/models/v1/models", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -143,7 +147,8 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("MCP Tools Endpoint", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/mcp/v1/tools")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/mcp/v1/tools", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -158,7 +163,8 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("Internal Status Endpoint", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/_internal/status")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/_internal/status", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -177,22 +183,23 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("Internal Config Endpoint", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/_internal/config")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/_internal/config", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var config map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&config)
+		var configData map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&configData)
 		require.NoError(t, err)
 
-		assert.Contains(t, config, "server")
-		assert.Contains(t, config, "providers")
-		assert.Contains(t, config, "mcp")
+		assert.Contains(t, configData, "server")
+		assert.Contains(t, configData, "providers")
+		assert.Contains(t, configData, "mcp")
 
 		// Verify API keys are sanitized (not included)
-		providers := config["providers"].([]interface{})
+		providers := configData["providers"].([]interface{})
 		for _, provider := range providers {
 			providerMap := provider.(map[string]interface{})
 			assert.NotContains(t, providerMap, "api_key")
@@ -200,7 +207,8 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("Internal Metrics Endpoint", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/_internal/metrics")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/_internal/metrics", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -215,7 +223,8 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("Backward Compatibility - Old Models Endpoint", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/v1/models")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/v1/models", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -231,7 +240,8 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("Invalid Endpoint Returns 404", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/invalid/endpoint")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/invalid/endpoint", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -270,7 +280,7 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 	// Start socket server
 	srv := server.NewWithSocket(cfg, socketPath)
 
-	cleanup := startServerWithErrgroup(t, srv)
+	cleanup := startServer(t, srv)
 	defer cleanup()
 
 	// Create HTTP client for Unix socket
@@ -293,7 +303,8 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 
 		for _, endpoint := range endpoints {
 			t.Run(endpoint, func(t *testing.T) {
-				resp, err := client.Get("http://unix" + endpoint)
+				req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://unix"+endpoint, http.NoBody)
+				resp, err := client.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -311,7 +322,8 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 
 		for _, endpoint := range internalEndpoints {
 			t.Run(endpoint, func(t *testing.T) {
-				resp, err := client.Get("http://unix" + endpoint)
+				req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://unix"+endpoint, http.NoBody)
+				resp, err := client.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -322,7 +334,8 @@ func TestIntegration_SocketSecurity(t *testing.T) {
 	})
 
 	t.Run("Health Check Response Format", func(t *testing.T) {
-		resp, err := client.Get("http://unix/health")
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://unix/health", http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -369,7 +382,7 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 		client := &http.Client{Timeout: 5 * time.Second}
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-		cleanup := startServerWithErrgroup(t, srv)
+		cleanup := startServer(t, srv)
 		defer cleanup()
 
 		// Test common endpoints
@@ -377,7 +390,8 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 
 		for _, endpoint := range commonEndpoints {
 			t.Run("Common Endpoint: "+endpoint, func(t *testing.T) {
-				resp, err := client.Get(baseURL + endpoint)
+				req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+endpoint, http.NoBody)
+				resp, err := client.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -392,7 +406,8 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 
 		// Test internal endpoints (should work in HTTP mode)
 		internalEndpoint := "/_internal/status"
-		resp, err := client.Get(baseURL + internalEndpoint)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+internalEndpoint, http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -415,7 +430,7 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 		}
 		baseURL := "http://unix"
 
-		cleanup := startServerWithErrgroup(t, srv)
+		cleanup := startServer(t, srv)
 		defer cleanup()
 
 		// Test common endpoints
@@ -423,7 +438,8 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 
 		for _, endpoint := range commonEndpoints {
 			t.Run("Common Endpoint: "+endpoint, func(t *testing.T) {
-				resp, err := client.Get(baseURL + endpoint)
+				req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+endpoint, http.NoBody)
+				resp, err := client.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -438,7 +454,8 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 
 		// Test internal endpoints (should NOT work in socket mode)
 		internalEndpoint := "/_internal/status"
-		resp, err := client.Get(baseURL + internalEndpoint)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+internalEndpoint, http.NoBody)
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 

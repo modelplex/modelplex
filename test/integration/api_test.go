@@ -52,9 +52,9 @@ func TestIntegration_FullAPIFlow(t *testing.T) {
 	srv := server.New(cfg, socketPath)
 	done := srv.Start()
 	select {
-	case err := <-done:
-		if err != nil && err != http.ErrServerClosed {
-			t.Fatalf("Failed to start server: %v", err)
+	case startErr := <-done:
+		if startErr != nil && startErr != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", startErr)
 		}
 	default:
 	}

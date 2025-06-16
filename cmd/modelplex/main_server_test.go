@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/modelplex/modelplex/internal/config"
 	"github.com/modelplex/modelplex/internal/server"
 )
@@ -38,23 +36,24 @@ func TestHTTPServerByDefault(t *testing.T) {
 	// Test HTTP server creation
 	srv := server.NewWithHTTPAddress(cfg, "127.0.0.1:0") // Use port 0 to get a random available port
 
-	// Start server using errgroup
-	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		done := srv.Start()
-		return <-done
-	})
+	// Start server
+	done := srv.Start()
+	defer func() { <-done }() // Wait for server to finish
+	select {
+	case startErr := <-done:
+		if startErr != nil && startErr != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", startErr)
+		}
+	default:
+	}
 
 	// Wait for server to be ready
 	waitForHTTPServerReady(t, srv)
 
 	// Stop server
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	srv.Stop(ctx)
-
-	// Wait for server to finish
-	_ = eg.Wait() // Ignore error as we expect server to be stopped
 }
 
 func TestSocketServerWhenSpecified(t *testing.T) {
@@ -80,23 +79,24 @@ func TestSocketServerWhenSpecified(t *testing.T) {
 	socketPath := "/tmp/test-modelplex.socket"
 	srv := server.NewWithSocket(cfg, socketPath)
 
-	// Start server using errgroup
-	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		done := srv.Start()
-		return <-done
-	})
+	// Start server
+	done := srv.Start()
+	defer func() { <-done }() // Wait for server to finish
+	select {
+	case startErr := <-done:
+		if startErr != nil && startErr != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", startErr)
+		}
+	default:
+	}
 
 	// Wait for server to be ready
 	waitForSocketServerReady(t, srv)
 
 	// Stop server
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	srv.Stop(ctx)
-
-	// Wait for server to finish
-	_ = eg.Wait() // Ignore error as we expect server to be stopped
 
 	// Check if socket file was cleaned up
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
@@ -133,18 +133,23 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	// Start HTTP server
 	srv := server.NewWithHTTPAddress(cfg, fmt.Sprintf("127.0.0.1:%d", port))
 
-	// Start server using errgroup
-	eg, _ := errgroup.WithContext(context.Background())
-	eg.Go(func() error {
-		done := srv.Start()
-		return <-done
-	})
+	// Start server
+	done := srv.Start()
+	defer func() { <-done }() // Wait for server to finish
+	select {
+	case startErr := <-done:
+		if startErr != nil && startErr != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", startErr)
+		}
+	default:
+	}
 
 	// Wait for server to be ready
 	waitForHTTPServerReady(t, srv)
 
 	// Test internal status endpoint
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/_internal/status", port))
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("http://127.0.0.1:%d/_internal/status", port), http.NoBody)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to get status: %v", err)
 	}
@@ -180,12 +185,9 @@ func TestInternalStatusEndpoint(t *testing.T) {
 	}
 
 	// Stop server
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stopCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	srv.Stop(ctx)
-
-	// Wait for server to finish
-	_ = eg.Wait() // Ignore error as we expect server to be stopped
+	srv.Stop(stopCtx)
 }
 
 // waitForHTTPServerReady waits for an HTTP server to be ready using the Ready() channel

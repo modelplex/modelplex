@@ -49,8 +49,8 @@ type Server struct {
 
 // NewWithSocket creates a new server instance with Unix socket.
 func NewWithSocket(cfg *config.Config, socketPath string) *Server {
-	mux := multiplexer.New(cfg.Providers)
-	proxy := proxy.New(mux)
+	muxer := multiplexer.New(cfg.Providers)
+	pr := proxy.New(muxer)
 
 	return &Server{
 		config:     cfg,
@@ -58,16 +58,16 @@ func NewWithSocket(cfg *config.Config, socketPath string) *Server {
 		useSocket:  true,
 		ready:      make(chan struct{}),
 		done:       make(chan struct{}),
-		mux:        mux,
-		proxy:      proxy,
+		mux:        muxer,
+		proxy:      pr,
 		started:    make(chan struct{}),
 	}
 }
 
 // NewWithHTTPAddress creates a new server instance with HTTP using address string.
 func NewWithHTTPAddress(cfg *config.Config, addr string) *Server {
-	mux := multiplexer.New(cfg.Providers)
-	proxy := proxy.New(mux)
+	muxer := multiplexer.New(cfg.Providers)
+	pr := proxy.New(muxer)
 
 	return &Server{
 		config:    cfg,
@@ -75,16 +75,16 @@ func NewWithHTTPAddress(cfg *config.Config, addr string) *Server {
 		useSocket: false,
 		ready:     make(chan struct{}),
 		done:      make(chan struct{}),
-		mux:       mux,
-		proxy:     proxy,
+		mux:       muxer,
+		proxy:     pr,
 		started:   make(chan struct{}),
 	}
 }
 
 // NewWithHTTP creates a new server instance with HTTP.
 func NewWithHTTP(cfg *config.Config, host string, port int) *Server {
-	mux := multiplexer.New(cfg.Providers)
-	proxy := proxy.New(mux)
+	muxer := multiplexer.New(cfg.Providers)
+	pr := proxy.New(muxer)
 
 	return &Server{
 		config:    cfg,
@@ -93,8 +93,8 @@ func NewWithHTTP(cfg *config.Config, host string, port int) *Server {
 		useSocket: false,
 		ready:     make(chan struct{}),
 		done:      make(chan struct{}),
-		mux:       mux,
-		proxy:     proxy,
+		mux:       muxer,
+		proxy:     pr,
 		started:   make(chan struct{}),
 	}
 }
@@ -120,7 +120,7 @@ func (s *Server) Start() <-chan error {
 
 		if s.useSocket {
 			// Check if socket already exists and error if it does
-			if _, err := os.Stat(s.socketPath); err == nil {
+			if _, statErr := os.Stat(s.socketPath); statErr == nil {
 				return fmt.Errorf("socket file already exists: %s", s.socketPath)
 			}
 			listener, err = net.Listen("unix", s.socketPath)
