@@ -147,19 +147,10 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("MCP Tools Endpoint", func(t *testing.T) {
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/mcp/v1/tools", http.NoBody)
-		resp, err := client.Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var tools map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&tools)
-		require.NoError(t, err)
-
-		assert.Contains(t, tools, "tools")
-		assert.Contains(t, tools, "message")
+		testJSONEndpoint(t, client, baseURL+"/mcp/v1/tools", map[string]interface{}{
+			"tools":   nil,
+			"message": nil,
+		})
 	})
 
 	t.Run("Internal Status Endpoint", func(t *testing.T) {
@@ -207,19 +198,10 @@ func TestIntegration_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("Internal Metrics Endpoint", func(t *testing.T) {
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", baseURL+"/_internal/metrics", http.NoBody)
-		resp, err := client.Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var metrics map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&metrics)
-		require.NoError(t, err)
-
-		assert.Contains(t, metrics, "requests_total")
-		assert.Contains(t, metrics, "message")
+		testJSONEndpoint(t, client, baseURL+"/_internal/metrics", map[string]interface{}{
+			"requests_total": nil,
+			"message":        nil,
+		})
 	})
 
 	t.Run("Backward Compatibility - Old Models Endpoint", func(t *testing.T) {
@@ -461,4 +443,22 @@ func TestIntegration_HTTPvsSocket(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
+}
+
+// testJSONEndpoint is a helper function to test JSON endpoints and verify expected fields
+func testJSONEndpoint(t *testing.T, client *http.Client, url string, expectedFields map[string]interface{}) {
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", url, http.NoBody)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var responseData map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&responseData)
+	require.NoError(t, err)
+
+	for field := range expectedFields {
+		assert.Contains(t, responseData, field)
+	}
 }
