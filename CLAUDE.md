@@ -55,6 +55,7 @@
 - All PRs require review and approval
 - CI/CD must pass: tests, linting, security scans, builds
 - No merge until all conversations resolved
+- **Docker Testing on PRs**: Include `[test-docker]` in PR title when you need to verify Docker builds/tests pass before merging (normally Docker tests only run on main branch)
 
 ### 6. Docker Strategy
 - **Base**: golang:1.24.4-alpine (matches go.mod)
