@@ -1,120 +1,130 @@
-# golangci-lint configuration for Modelplex
 version: "2"
-
 run:
-  timeout: 5m
-  go: '1.24.4'
-
+  go: "1.24.4"
 linters:
-  settings:
-  govet:
-    shadow: true
-  revive:
-    min-confidence: 0
-  depguard:
-    rules:
-      main:
-        files:
-          - "!**/*_test.go"
-          - "!**/test/**"
-        allow:
-          - $gostd
-          - github.com/modelplex/modelplex
-          - github.com/jessevdk/go-flags
-          - github.com/gorilla/mux
-          - github.com/pelletier/go-toml/v2
-      tests:
-        files:
-          - "**/*_test.go"
-          - "**/test/**"
-        allow:
-          - $gostd
-          - github.com/modelplex/modelplex
-          - github.com/stretchr/testify
-          - github.com/jessevdk/go-flags
-          - github.com/gorilla/mux
-          - github.com/pelletier/go-toml/v2
-  gocyclo:
-    min-complexity: 15
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 2
-    min-occurrences: 3
-  misspell:
-    locale: US
-  lll:
-    line-length: 120
-  goimports:
-    local-prefixes: github.com/modelplex/modelplex
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-  funlen:
-    lines: 100
-    statements: 50
-
   default: none
   enable:
     - bodyclose
-    - unused
+    - copyloopvar
     - depguard
     - dogsled
     - dupl
     - errcheck
-    - copyloopvar
     - funlen
     - gochecknoinits
     - goconst
     - gocritic
     - gocyclo
-    - gofmt
-    - goimports
-    - revive
-    - mnd
     - goprintffuncname
     - gosec
-    - gosimple
     - govet
     - ineffassign
     - lll
     - misspell
+    - mnd
     - nakedret
     - noctx
     - nolintlint
+    - revive
     - rowserrcheck
     - staticcheck
-    - stylecheck
     - unconvert
     - unparam
+    - unused
     - whitespace
-
+  settings:
+    depguard:
+      rules:
+        main:
+          files:
+            - '!**/*_test.go'
+            - '!**/test/**'
+          allow:
+            - $gostd
+            - github.com/modelplex/modelplex
+            - github.com/jessevdk/go-flags
+            - github.com/gorilla/mux
+            - github.com/pelletier/go-toml/v2
+        tests:
+          files:
+            - '**/*_test.go'
+            - '**/test/**'
+          allow:
+            - $gostd
+            - github.com/modelplex/modelplex
+            - github.com/stretchr/testify
+            - github.com/jessevdk/go-flags
+            - github.com/gorilla/mux
+            - github.com/pelletier/go-toml/v2
+    dupl:
+      threshold: 100
+    funlen:
+      lines: 100
+      statements: 50
+    goconst:
+      min-len: 2
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable:
+        - shadow
+    lll:
+      line-length: 120
+    misspell:
+      locale: US
   exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - funlen
+          - lll
+          - mnd
+        path: _test\.go
+      - linters:
+          - funlen
+          - lll
+          - mnd
+        path: test/
+      - linters:
+          - lll
+        source: '^//go:generate '
+      - path: (.+)\.go$
+        text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*printf?|os\.(Un)?Setenv). is not checked
+      - path: (.+)\.go$
+        text: should check returned error before deferring
     paths:
-      "**/*_test.go":
-        - mnd
-        - funlen
-        - lll
-      "**/test/**":
-        - mnd
-        - funlen
-        - lll
-    sources:
-      "^//go:generate ":
-        - lll
-    texts:
-      "Error return value of .((os\\\\.)?std(out|err)\\\\..*|.*Close|.*Flush|os\\\\.Remove(All)?|.*printf?|os\\\\.(Un)?Setenv). is not checked": []
-      "should check returned error before deferring": []
-
-output:
-  severity:
-    default: error
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+severity:
+  default: error
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/modelplex/modelplex
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
