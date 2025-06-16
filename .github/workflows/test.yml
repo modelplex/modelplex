@@ -205,8 +205,8 @@ jobs:
           SHORT_SHA=$(git rev-parse --short=10 ${{ github.sha }})
           IMAGE_TAG="ghcr.io/${{ github.repository }}:main-${SHORT_SHA}"
         else
-          # For PR builds, use the first tag from metadata
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          # For PR builds, use the pr-<PR_ID> tag
+          IMAGE_TAG="ghcr.io/${{ github.repository }}:pr-${{ github.event.number }}"
         fi
         echo "Testing Docker image: $IMAGE_TAG"
         docker run --rm $IMAGE_TAG --version
