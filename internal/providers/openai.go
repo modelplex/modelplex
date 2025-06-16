@@ -118,3 +118,43 @@ func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, paylo
 
 	return result, nil
 }
+
+// ChatCompletionStream performs a streaming chat completion request.
+func (p *OpenAIProvider) ChatCompletionStream(
+	ctx context.Context, model string, messages []map[string]interface{},
+) (<-chan interface{}, error) {
+	payload := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+		"stream":   true,
+	}
+
+	return p.makeStreamingRequest(ctx, "/chat/completions", payload)
+}
+
+// CompletionStream performs a streaming completion request.
+func (p *OpenAIProvider) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	payload := map[string]interface{}{
+		"model":  model,
+		"prompt": prompt,
+		"stream": true,
+	}
+
+	return p.makeStreamingRequest(ctx, "/completions", payload)
+}
+
+func (p *OpenAIProvider) makeStreamingRequest(ctx context.Context, endpoint string,
+	payload interface{}) (<-chan interface{}, error) {
+	reqConfig := StreamingRequestConfig{
+		BaseURL:  p.baseURL,
+		Endpoint: endpoint,
+		Payload:  payload,
+		Headers: map[string]string{
+			"Authorization": "Bearer " + p.apiKey,
+		},
+		UseSSE:      true,
+		Transformer: nil, // OpenAI doesn't need response transformation
+	}
+
+	return makeStreamingRequest(ctx, p.client, reqConfig)
+}

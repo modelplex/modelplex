@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,6 +33,23 @@ func (m *MockMultiplexer) Completion(ctx context.Context, model, prompt string) 
 func (m *MockMultiplexer) ListModels() []string {
 	args := m.Called()
 	return args.Get(0).([]string)
+}
+
+// Streaming methods for future interface extension
+func (m *MockMultiplexer) ChatCompletionStream(ctx context.Context, model string, messages []map[string]interface{}) (<-chan interface{}, error) {
+	args := m.Called(ctx, model, messages)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(<-chan interface{}), args.Error(1)
+}
+
+func (m *MockMultiplexer) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	args := m.Called(ctx, model, prompt)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(<-chan interface{}), args.Error(1)
 }
 
 func TestOpenAIProxy_HandleChatCompletions(t *testing.T) {
@@ -257,4 +275,214 @@ func TestWriteError(t *testing.T) {
 	errorObj := response["error"].(map[string]interface{})
 	assert.Equal(t, "Test error message", errorObj["message"])
 	assert.Equal(t, "invalid_request_error", errorObj["type"])
+}
+
+// STREAMING TESTS - These will fail initially (TDD approach)
+
+func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
+	mockMux := &MockMultiplexer{}
+	proxy := New(mockMux)
+
+	// Set up mock expectations for streaming
+	// Create a channel for streaming chunks
+	streamChan := make(chan interface{}, 3)
+
+	// Mock streaming response chunks
+	streamChan <- map[string]interface{}{
+		"id":      "chatcmpl-123",
+		"object":  "chat.completion.chunk",
+		"created": 1677652288,
+		"model":   "gpt-4",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"delta": map[string]interface{}{
+					"content": "Hello",
+				},
+				"index": 0,
+			},
+		},
+	}
+	streamChan <- map[string]interface{}{
+		"id":      "chatcmpl-123",
+		"object":  "chat.completion.chunk",
+		"created": 1677652288,
+		"model":   "gpt-4",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"delta": map[string]interface{}{
+					"content": " World!",
+				},
+				"index": 0,
+			},
+		},
+	}
+	close(streamChan)
+
+	// Convert to receive-only channel
+	var readOnlyChan <-chan interface{} = streamChan
+	mockMux.On("ChatCompletionStream", mock.Anything, "gpt-4", mock.Anything).Return(readOnlyChan, nil)
+
+	// Create streaming request
+	requestBody := map[string]interface{}{
+		"model": "gpt-4",
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": "Hello"},
+		},
+		"stream": true,
+	}
+
+	reqBody, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	// Execute
+	proxy.HandleChatCompletions(w, req)
+
+	// Verify SSE headers
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "keep-alive", w.Header().Get("Connection"))
+
+	// Verify SSE response format
+	responseBody := w.Body.String()
+	assert.Contains(t, responseBody, "data: ")
+	assert.Contains(t, responseBody, "data: [DONE]")
+
+	// Verify chunks are properly formatted
+	lines := strings.Split(responseBody, "\n")
+	var dataLines []string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "data: ") {
+			dataLines = append(dataLines, line)
+		}
+	}
+
+	// Should have 2 data chunks plus [DONE]
+	assert.GreaterOrEqual(t, len(dataLines), 2)
+	assert.Equal(t, "data: [DONE]", dataLines[len(dataLines)-1])
+
+	mockMux.AssertExpectations(t)
+}
+
+func TestOpenAIProxy_HandleCompletions_Streaming(t *testing.T) {
+	mockMux := &MockMultiplexer{}
+	proxy := New(mockMux)
+
+	// Create a channel for streaming chunks
+	streamChan := make(chan interface{}, 2)
+
+	streamChan <- map[string]interface{}{
+		"id":      "cmpl-123",
+		"object":  "text_completion",
+		"created": 1677652288,
+		"model":   "gpt-3.5-turbo-instruct",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"text":  " with something",
+				"index": 0,
+			},
+		},
+	}
+	streamChan <- map[string]interface{}{
+		"id":      "cmpl-123",
+		"object":  "text_completion",
+		"created": 1677652288,
+		"model":   "gpt-3.5-turbo-instruct",
+		"choices": []interface{}{
+			map[string]interface{}{
+				"text":  " interesting.",
+				"index": 0,
+			},
+		},
+	}
+	close(streamChan)
+
+	// Convert to receive-only channel
+	var readOnlyChan <-chan interface{} = streamChan
+	mockMux.On("CompletionStream", mock.Anything, "gpt-3.5-turbo-instruct", "Complete this sentence").Return(readOnlyChan, nil)
+
+	requestBody := map[string]interface{}{
+		"model":  "gpt-3.5-turbo-instruct",
+		"prompt": "Complete this sentence",
+		"stream": true,
+	}
+
+	reqBody, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("POST", "/v1/completions", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	// Execute
+	proxy.HandleCompletions(w, req)
+
+	// Verify SSE headers
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "keep-alive", w.Header().Get("Connection"))
+
+	// Verify SSE response format
+	responseBody := w.Body.String()
+	assert.Contains(t, responseBody, "data: ")
+	assert.Contains(t, responseBody, "data: [DONE]")
+
+	mockMux.AssertExpectations(t)
+}
+
+func TestOpenAIProxy_HandleChatCompletions_BackwardCompatibility(t *testing.T) {
+	// Test that non-streaming requests still work
+	mockMux := &MockMultiplexer{}
+	proxy := New(mockMux)
+
+	mockResponse := map[string]interface{}{
+		"id":      "chatcmpl-123",
+		"object":  "chat.completion",
+		"created": float64(1677652288),
+		"choices": []interface{}{
+			map[string]interface{}{
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": "Hello! How can I help you?",
+				},
+			},
+		},
+	}
+
+	mockMux.On("ChatCompletion", mock.Anything, "gpt-4", mock.Anything).Return(mockResponse, nil)
+
+	// Non-streaming request (stream: false or omitted)
+	requestBody := map[string]interface{}{
+		"model": "gpt-4",
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": "Hello"},
+		},
+		"stream": false,
+	}
+
+	reqBody, err := json.Marshal(requestBody)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	// Execute
+	proxy.HandleChatCompletions(w, req)
+
+	// Verify standard JSON response (not SSE)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+	var response map[string]interface{}
+	err = json.NewDecoder(w.Body).Decode(&response)
+	require.NoError(t, err)
+	assert.Equal(t, mockResponse, response)
+
+	mockMux.AssertExpectations(t)
 }

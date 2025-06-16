@@ -149,3 +149,72 @@ func (p *AnthropicProvider) makeRequest(
 
 	return result, nil
 }
+
+// ChatCompletionStream performs a streaming chat completion request.
+func (p *AnthropicProvider) ChatCompletionStream(
+	ctx context.Context, model string, messages []map[string]interface{},
+) (<-chan interface{}, error) {
+	// Transform messages to Anthropic format (same as non-streaming)
+	var systemMessage string
+	var anthropicMessages []map[string]interface{}
+
+	for _, msg := range messages {
+		role := msg["role"].(string)
+		content := msg["content"].(string)
+
+		if role == "system" {
+			systemMessage = content
+		} else {
+			anthropicMessages = append(anthropicMessages, map[string]interface{}{
+				"role":    role,
+				"content": content,
+			})
+		}
+	}
+
+	payload := map[string]interface{}{
+		"model":      model,
+		"messages":   anthropicMessages,
+		"max_tokens": defaultMaxTokens,
+		"stream":     true,
+	}
+
+	if systemMessage != "" {
+		payload["system"] = systemMessage
+	}
+
+	return p.makeStreamingRequest(ctx, "/messages", payload)
+}
+
+// CompletionStream performs a streaming completion request.
+func (p *AnthropicProvider) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	messages := []map[string]interface{}{
+		{"role": "user", "content": prompt},
+	}
+	return p.ChatCompletionStream(ctx, model, messages)
+}
+
+func (p *AnthropicProvider) makeStreamingRequest(ctx context.Context, endpoint string,
+	payload interface{}) (<-chan interface{}, error) {
+	reqConfig := StreamingRequestConfig{
+		BaseURL:  p.baseURL,
+		Endpoint: endpoint,
+		Payload:  payload,
+		Headers: map[string]string{
+			"x-api-key":         p.apiKey,
+			"anthropic-version": "2023-06-01",
+		},
+		UseSSE:      true,
+		Transformer: p.transformStreamingResponse,
+	}
+
+	return makeStreamingRequest(ctx, p.client, reqConfig)
+}
+
+// transformStreamingResponse transforms Anthropic streaming response to OpenAI format
+func (p *AnthropicProvider) transformStreamingResponse(chunk interface{}) interface{} {
+	// For now, pass through as-is. In a full implementation, we would
+	// transform Anthropic's streaming format to match OpenAI's format
+	// This would involve converting Anthropic's delta format to OpenAI's delta format
+	return chunk
+}

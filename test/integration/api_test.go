@@ -50,21 +50,20 @@ func TestIntegration_FullAPIFlow(t *testing.T) {
 
 	// Start test server
 	srv := server.New(cfg, socketPath)
-
-	go func() {
-		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
-			t.Logf("Server error: %v", err)
+	done := srv.Start()
+	select {
+	case err := <-done:
+		if err != nil && err != http.ErrServerClosed {
+			t.Fatalf("Failed to start server: %v", err)
 		}
-	}()
-
-	// Wait for server to start
-	time.Sleep(100 * time.Millisecond)
+	default:
+	}
 
 	// Verify socket exists
 	_, err := os.Stat(socketPath)
 	require.NoError(t, err)
 
-	defer srv.Stop()
+	defer srv.Stop(t.Context())
 
 	// Test health endpoint
 	t.Run("Health Check", func(t *testing.T) {
@@ -172,10 +171,7 @@ func TestIntegration_ConfigValidation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			done := make(chan error, 1)
-			go func() {
-				done <- srv.Start()
-			}()
+			done := srv.Start()
 
 			select {
 			case err := <-done:
@@ -194,7 +190,7 @@ func TestIntegration_ConfigValidation(t *testing.T) {
 				}
 			}
 
-			srv.Stop()
+			srv.Stop(t.Context())
 		})
 	}
 }

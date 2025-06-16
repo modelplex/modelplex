@@ -112,3 +112,49 @@ func (p *OllamaProvider) makeRequest(ctx context.Context, endpoint string, paylo
 
 	return result, nil
 }
+
+// ChatCompletionStream performs a streaming chat completion request.
+func (p *OllamaProvider) ChatCompletionStream(
+	ctx context.Context, model string, messages []map[string]interface{},
+) (<-chan interface{}, error) {
+	payload := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+		"stream":   true, // Enable streaming for Ollama
+	}
+
+	return p.makeStreamingRequest(ctx, "/api/chat", payload)
+}
+
+// CompletionStream performs a streaming completion request.
+func (p *OllamaProvider) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	payload := map[string]interface{}{
+		"model":  model,
+		"prompt": prompt,
+		"stream": true, // Enable streaming for Ollama
+	}
+
+	return p.makeStreamingRequest(ctx, "/api/generate", payload)
+}
+
+func (p *OllamaProvider) makeStreamingRequest(ctx context.Context, endpoint string,
+	payload interface{}) (<-chan interface{}, error) {
+	reqConfig := StreamingRequestConfig{
+		BaseURL:     p.baseURL,
+		Endpoint:    endpoint,
+		Payload:     payload,
+		Headers:     map[string]string{}, // Ollama doesn't require authentication
+		UseSSE:      false,               // Ollama uses line-by-line JSON, not SSE
+		Transformer: p.transformStreamingResponse,
+	}
+
+	return makeStreamingRequest(ctx, p.client, reqConfig)
+}
+
+// transformStreamingResponse transforms Ollama streaming response to OpenAI format
+func (p *OllamaProvider) transformStreamingResponse(chunk interface{}) interface{} {
+	// For now, pass through as-is. In a full implementation, we would
+	// transform Ollama's streaming format to match OpenAI's format
+	// This would involve converting Ollama's response format to OpenAI's delta format
+	return chunk
+}
