@@ -49,7 +49,7 @@ func TestIntegration_FullAPIFlow(t *testing.T) {
 	}
 
 	// Start test server
-	srv := server.New(cfg, socketPath)
+	srv := server.NewWithSocket(cfg, socketPath)
 	done := srv.Start()
 	select {
 	case startErr := <-done:
@@ -168,7 +168,7 @@ func TestIntegration_ConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			socketPath := filepath.Join(tmpDir, tt.name+".socket")
-			srv := server.New(tt.config, socketPath)
+			srv := server.NewWithSocket(tt.config, socketPath)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()

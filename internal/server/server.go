@@ -31,8 +31,6 @@ const (
 type Server struct {
 	config     *config.Config
 	socketPath string
-	host       string
-	port       int
 	httpAddr   string
 	useSocket  bool
 	listener   net.Listener
@@ -73,28 +71,6 @@ func NewWithHTTPAddress(cfg *config.Config, addr string) *Server {
 	}
 }
 
-// NewWithHTTP creates a new server instance with HTTP.
-func NewWithHTTP(cfg *config.Config, host string, port int) *Server {
-	muxer := multiplexer.New(cfg.Providers)
-	pr := proxy.New(muxer)
-
-	return &Server{
-		config:    cfg,
-		host:      host,
-		port:      port,
-		useSocket: false,
-		mux:       muxer,
-		proxy:     pr,
-		started:   make(chan struct{}),
-	}
-}
-
-// New creates a new server instance with the given configuration and socket path.
-// Deprecated: Use NewWithSocket or NewWithHTTP instead.
-func New(cfg *config.Config, socketPath string) *Server {
-	return NewWithSocket(cfg, socketPath)
-}
-
 // Start starts the HTTP server listening on either Unix socket or HTTP port.
 func (s *Server) Start() <-chan error {
 	done := make(chan error, 1)
@@ -117,17 +93,11 @@ func (s *Server) Start() <-chan error {
 			}
 			slog.Info("Modelplex server listening", "socket", s.socketPath)
 		} else {
-			var addr string
-			if s.httpAddr != "" {
-				addr = s.httpAddr
-			} else {
-				addr = fmt.Sprintf("%s:%d", s.host, s.port)
-			}
-			s.listener, err = net.Listen("tcp", addr)
+			s.listener, err = net.Listen("tcp", s.httpAddr)
 			if err != nil {
 				return fmt.Errorf("failed to listen on address: %w", err)
 			}
-			slog.Info("Modelplex server listening", "address", addr)
+			slog.Info("Modelplex server listening", "address", s.httpAddr)
 		}
 
 		close(s.started)
@@ -287,12 +257,7 @@ func (s *Server) handleInternalStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	// Add address information
-	if s.httpAddr != "" {
-		status["address"] = s.httpAddr
-	} else if s.host != "" && s.port != 0 {
-		status["host"] = s.host
-		status["port"] = s.port
-	}
+	status["address"] = s.httpAddr
 
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		slog.Error("Error writing internal status response", "error", err)
