@@ -15,29 +15,31 @@ import (
 
 // StreamingRequestConfig holds configuration for making streaming requests
 type StreamingRequestConfig struct {
-	BaseURL     string
-	Endpoint    string
-	Payload     interface{}
-	Headers     map[string]string
-	UseSSE      bool // true for SSE format (OpenAI/Anthropic), false for line-by-line JSON (Ollama)
+	BaseURL  string
+	Endpoint string
+	Payload  interface{}
+	Headers  map[string]string
+	// UseSSE true for SSE format (OpenAI/Anthropic), false for line-by-line JSON (Ollama)
+	UseSSE      bool
 	Transformer func(interface{}) interface{} // optional response transformer
 }
 
 // makeStreamingRequest is a generic function for making streaming HTTP requests
 // It handles both SSE format (OpenAI/Anthropic) and line-by-line JSON (Ollama)
-func makeStreamingRequest(ctx context.Context, client *http.Client, config StreamingRequestConfig) (<-chan interface{}, error) {
-	jsonData, err := json.Marshal(config.Payload)
+func makeStreamingRequest(ctx context.Context, client *http.Client,
+	reqConfig StreamingRequestConfig) (<-chan interface{}, error) {
+	jsonData, err := json.Marshal(reqConfig.Payload)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", config.BaseURL+config.Endpoint, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", reqConfig.BaseURL+reqConfig.Endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	for key, value := range config.Headers {
+	for key, value := range reqConfig.Headers {
 		req.Header.Set(key, value)
 	}
 
@@ -63,25 +65,25 @@ func makeStreamingRequest(ctx context.Context, client *http.Client, config Strea
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
-			
+
 			// Skip empty lines
 			if line == "" {
 				continue
 			}
-			
+
 			var chunk interface{}
 			var err error
 
-			if config.UseSSE {
+			if reqConfig.UseSSE {
 				// Handle SSE format (OpenAI/Anthropic)
 				if strings.HasPrefix(line, "data: ") {
 					data := strings.TrimPrefix(line, "data: ")
-					
+
 					// Check for end marker
 					if data == "[DONE]" {
 						return
 					}
-					
+
 					// Parse JSON chunk
 					err = json.Unmarshal([]byte(data), &chunk)
 				} else {
@@ -95,15 +97,15 @@ func makeStreamingRequest(ctx context.Context, client *http.Client, config Strea
 			if err != nil {
 				continue // Skip malformed chunks
 			}
-			
+
 			// Apply transformer if provided
-			if config.Transformer != nil {
-				chunk = config.Transformer(chunk)
+			if reqConfig.Transformer != nil {
+				chunk = reqConfig.Transformer(chunk)
 				if chunk == nil {
 					continue // Skip if transformer returns nil
 				}
 			}
-			
+
 			// Send chunk to channel
 			select {
 			case streamChan <- chunk:

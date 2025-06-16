@@ -286,7 +286,7 @@ func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
 	// Set up mock expectations for streaming
 	// Create a channel for streaming chunks
 	streamChan := make(chan interface{}, 3)
-	
+
 	// Mock streaming response chunks
 	streamChan <- map[string]interface{}{
 		"id":      "chatcmpl-123",
@@ -317,9 +317,9 @@ func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
 		},
 	}
 	close(streamChan)
-	
+
 	// Convert to receive-only channel
-	readOnlyChan := (<-chan interface{})(streamChan)
+	var readOnlyChan <-chan interface{} = streamChan
 	mockMux.On("ChatCompletionStream", mock.Anything, "gpt-4", mock.Anything).Return(readOnlyChan, nil)
 
 	// Create streaming request
@@ -351,7 +351,7 @@ func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
 	responseBody := w.Body.String()
 	assert.Contains(t, responseBody, "data: ")
 	assert.Contains(t, responseBody, "data: [DONE]")
-	
+
 	// Verify chunks are properly formatted
 	lines := strings.Split(responseBody, "\n")
 	var dataLines []string
@@ -360,7 +360,7 @@ func TestOpenAIProxy_HandleChatCompletions_Streaming(t *testing.T) {
 			dataLines = append(dataLines, line)
 		}
 	}
-	
+
 	// Should have 2 data chunks plus [DONE]
 	assert.GreaterOrEqual(t, len(dataLines), 2)
 	assert.Equal(t, "data: [DONE]", dataLines[len(dataLines)-1])
@@ -374,7 +374,7 @@ func TestOpenAIProxy_HandleCompletions_Streaming(t *testing.T) {
 
 	// Create a channel for streaming chunks
 	streamChan := make(chan interface{}, 2)
-	
+
 	streamChan <- map[string]interface{}{
 		"id":      "cmpl-123",
 		"object":  "text_completion",
@@ -400,9 +400,9 @@ func TestOpenAIProxy_HandleCompletions_Streaming(t *testing.T) {
 		},
 	}
 	close(streamChan)
-	
-	// Convert to receive-only channel  
-	readOnlyChan := (<-chan interface{})(streamChan)
+
+	// Convert to receive-only channel
+	var readOnlyChan <-chan interface{} = streamChan
 	mockMux.On("CompletionStream", mock.Anything, "gpt-3.5-turbo-instruct", "Complete this sentence").Return(readOnlyChan, nil)
 
 	requestBody := map[string]interface{}{
@@ -443,7 +443,7 @@ func TestOpenAIProxy_HandleChatCompletions_BackwardCompatibility(t *testing.T) {
 	mockResponse := map[string]interface{}{
 		"id":      "chatcmpl-123",
 		"object":  "chat.completion",
-		"created": 1677652288,
+		"created": float64(1677652288),
 		"choices": []interface{}{
 			map[string]interface{}{
 				"message": map[string]interface{}{

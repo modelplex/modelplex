@@ -2,11 +2,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jessevdk/go-flags"
 
@@ -71,18 +73,25 @@ func main() {
 	slog.Info("Starting server", "socket", opts.Socket)
 
 	srv := server.New(cfg, opts.Socket)
+	done := srv.Start()
 
-	go func() {
-		if err := srv.Start(); err != nil {
-			slog.Error("Server failed", "error", err)
+	select {
+	case err := <-done:
+		if err != nil {
+			slog.Error("Server failed to start", "error", err)
 			os.Exit(1)
 		}
-	}()
+	default:
+	}
+
+	slog.Info("Server started successfully", "socket", opts.Socket)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
 	slog.Info("Shutting down...")
-	srv.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Stop(ctx)
 }

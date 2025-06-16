@@ -143,8 +143,9 @@ func (p *OpenAIProvider) CompletionStream(ctx context.Context, model, prompt str
 	return p.makeStreamingRequest(ctx, "/completions", payload)
 }
 
-func (p *OpenAIProvider) makeStreamingRequest(ctx context.Context, endpoint string, payload interface{}) (<-chan interface{}, error) {
-	config := StreamingRequestConfig{
+func (p *OpenAIProvider) makeStreamingRequest(ctx context.Context, endpoint string,
+	payload interface{}) (<-chan interface{}, error) {
+	reqConfig := StreamingRequestConfig{
 		BaseURL:  p.baseURL,
 		Endpoint: endpoint,
 		Payload:  payload,
@@ -155,5 +156,5 @@ func (p *OpenAIProvider) makeStreamingRequest(ctx context.Context, endpoint stri
 		Transformer: nil, // OpenAI doesn't need response transformation
 	}
 
-	return makeStreamingRequest(ctx, p.client, config)
+	return makeStreamingRequest(ctx, p.client, reqConfig)
 }

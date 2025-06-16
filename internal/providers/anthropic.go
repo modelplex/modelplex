@@ -194,8 +194,9 @@ func (p *AnthropicProvider) CompletionStream(ctx context.Context, model, prompt 
 	return p.ChatCompletionStream(ctx, model, messages)
 }
 
-func (p *AnthropicProvider) makeStreamingRequest(ctx context.Context, endpoint string, payload interface{}) (<-chan interface{}, error) {
-	config := StreamingRequestConfig{
+func (p *AnthropicProvider) makeStreamingRequest(ctx context.Context, endpoint string,
+	payload interface{}) (<-chan interface{}, error) {
+	reqConfig := StreamingRequestConfig{
 		BaseURL:  p.baseURL,
 		Endpoint: endpoint,
 		Payload:  payload,
@@ -207,7 +208,7 @@ func (p *AnthropicProvider) makeStreamingRequest(ctx context.Context, endpoint s
 		Transformer: p.transformStreamingResponse,
 	}
 
-	return makeStreamingRequest(ctx, p.client, config)
+	return makeStreamingRequest(ctx, p.client, reqConfig)
 }
 
 // transformStreamingResponse transforms Anthropic streaming response to OpenAI format

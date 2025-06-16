@@ -43,6 +43,16 @@ func (m *MockProvider) ListModels() []string {
 	return args.Get(0).([]string)
 }
 
+func (m *MockProvider) ChatCompletionStream(ctx context.Context, model string, messages []map[string]interface{}) (<-chan interface{}, error) {
+	args := m.Called(ctx, model, messages)
+	return args.Get(0).(<-chan interface{}), args.Error(1)
+}
+
+func (m *MockProvider) CompletionStream(ctx context.Context, model, prompt string) (<-chan interface{}, error) {
+	args := m.Called(ctx, model, prompt)
+	return args.Get(0).(<-chan interface{}), args.Error(1)
+}
+
 func TestNew(t *testing.T) {
 	configs := []config.Provider{
 		{

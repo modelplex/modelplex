@@ -2,7 +2,6 @@
 package proxy
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -61,7 +60,7 @@ func (p *OpenAIProxy) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 	}
 
 	model := p.normalizeModel(req.Model)
-	
+
 	if req.Stream {
 		// Handle streaming request
 		streamChan, err := p.mux.ChatCompletionStream(r.Context(), model, req.Messages)
@@ -86,7 +85,7 @@ func (p *OpenAIProxy) HandleCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	model := p.normalizeModel(req.Model)
-	
+
 	if req.Stream {
 		// Handle streaming request
 		streamChan, err := p.mux.CompletionStream(r.Context(), model, req.Prompt)

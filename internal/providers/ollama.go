@@ -137,17 +137,18 @@ func (p *OllamaProvider) CompletionStream(ctx context.Context, model, prompt str
 	return p.makeStreamingRequest(ctx, "/api/generate", payload)
 }
 
-func (p *OllamaProvider) makeStreamingRequest(ctx context.Context, endpoint string, payload interface{}) (<-chan interface{}, error) {
-	config := StreamingRequestConfig{
-		BaseURL:  p.baseURL,
-		Endpoint: endpoint,
-		Payload:  payload,
-		Headers:  map[string]string{}, // Ollama doesn't require authentication
-		UseSSE:   false,               // Ollama uses line-by-line JSON, not SSE
+func (p *OllamaProvider) makeStreamingRequest(ctx context.Context, endpoint string,
+	payload interface{}) (<-chan interface{}, error) {
+	reqConfig := StreamingRequestConfig{
+		BaseURL:     p.baseURL,
+		Endpoint:    endpoint,
+		Payload:     payload,
+		Headers:     map[string]string{}, // Ollama doesn't require authentication
+		UseSSE:      false,               // Ollama uses line-by-line JSON, not SSE
 		Transformer: p.transformStreamingResponse,
 	}
 
-	return makeStreamingRequest(ctx, p.client, config)
+	return makeStreamingRequest(ctx, p.client, reqConfig)
 }
 
 // transformStreamingResponse transforms Ollama streaming response to OpenAI format

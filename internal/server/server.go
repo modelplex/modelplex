@@ -3,10 +3,13 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -31,6 +34,8 @@ type Server struct {
 	server     *http.Server
 	mux        *multiplexer.ModelMultiplexer
 	proxy      *proxy.OpenAIProxy
+	startMtx   sync.Mutex
+	started    chan struct{}
 }
 
 // New creates a new server instance with the given configuration and socket path.
@@ -43,21 +48,43 @@ func New(cfg *config.Config, socketPath string) *Server {
 		socketPath: socketPath,
 		mux:        muxer,
 		proxy:      pr,
+		started:    make(chan struct{}),
 	}
 }
 
 // Start starts the HTTP server listening on the Unix socket.
-func (s *Server) Start() error {
-	if err := os.RemoveAll(s.socketPath); err != nil {
-		return err
-	}
+func (s *Server) Start() <-chan error {
+	done := make(chan error, 1)
+	err := func() (err error) {
+		s.startMtx.Lock()
+		defer s.startMtx.Unlock()
 
-	listener, err := net.Listen("unix", s.socketPath)
+		if s.listener != nil {
+			return errors.New("server is already running")
+		}
+
+		// Check if socket already exists
+		_, err = os.Stat(s.socketPath)
+		if err == nil {
+			return fmt.Errorf("socket file already exists: %s", s.socketPath)
+		}
+
+		// Create listener
+		s.listener, err = net.Listen("unix", s.socketPath)
+		if err != nil {
+			return fmt.Errorf("failed to listen on socket: %w", err)
+		}
+		close(s.started)
+		return nil
+	}()
 	if err != nil {
-		return err
+		done <- err
+		return done
 	}
-	s.listener = listener
 
+	// Mutex no longer necessary after s.started is closed
+
+	// Set up server
 	router := mux.NewRouter()
 	s.setupRoutes(router)
 
@@ -68,25 +95,42 @@ func (s *Server) Start() error {
 	}
 
 	slog.Info("Modelplex server listening", "socket", s.socketPath)
-	return s.server.Serve(listener)
+
+	go func() {
+		done <- s.server.Serve(s.listener)
+	}()
+	return done
 }
 
 // Stop gracefully shuts down the server and cleans up the Unix socket.
-func (s *Server) Stop() {
+// It doesn't return an error because it operates idempotently.
+func (s *Server) Stop(ctx context.Context) {
+	select {
+	case <-s.started:
+	default:
+		slog.Warn("Server not started, nothing to stop")
+		return
+	}
+
+	if s.listener == nil {
+		return // Nothing to stop
+	}
+
+	// Shutdown server with timeout
 	if s.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
 		if err := s.server.Shutdown(ctx); err != nil {
 			slog.Error("Error shutting down server", "error", err)
 		}
 	}
-	if s.listener != nil {
-		if err := s.listener.Close(); err != nil {
-			slog.Error("Error closing listener", "error", err)
-		}
+
+	// Close listener
+	if err := s.listener.Close(); err != nil {
+		slog.Error("Error closing listener", "error", err)
 	}
-	if err := os.RemoveAll(s.socketPath); err != nil {
-		slog.Error("Error removing socket path", "path", s.socketPath, "error", err)
+
+	// Clean up socket file
+	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+		slog.Error("Error removing socket file", "path", s.socketPath, "error", err)
 	}
 }
 
