@@ -65,6 +65,11 @@ func (m *ModelMultiplexer) ListModels() []string {
 	return models
 }
 
+// GetAllProviders returns all configured providers.
+func (m *ModelMultiplexer) GetAllProviders() []providers.Provider {
+	return m.providers
+}
+
 // ChatCompletion routes a chat completion request to the appropriate provider.
 func (m *ModelMultiplexer) ChatCompletion(
 	ctx context.Context, model string, messages []map[string]interface{},
