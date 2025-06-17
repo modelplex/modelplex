@@ -109,8 +109,12 @@ func (s *Server) Start() <-chan error {
 	router := mux.NewRouter()
 	s.setupRoutes(router)
 
+	var handler http.Handler = router
+	// Apply RequestLoggingMiddleware
+	handler = RequestLoggingMiddleware(handler)
+
 	s.server = &http.Server{
-		Handler:      router,
+		Handler:      handler, // Use the wrapped handler
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 	}

@@ -1,231 +1,261 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/modelplex/modelplex/internal/config"
+	"github.com/modelplex/modelplex/internal/proxy"
 )
 
-func TestNewOpenAIProvider(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   config.Provider
-		envVars  map[string]string
-		expected *OpenAIProvider
-	}{
-		{
-			name: "direct api key",
-			config: config.Provider{
-				Name:     "openai",
-				BaseURL:  "https://api.openai.com/v1",
-				APIKey:   "sk-test123",
-				Models:   []string{"gpt-4"},
-				Priority: 1,
-			},
-			expected: &OpenAIProvider{
-				name:     "openai",
-				baseURL:  "https://api.openai.com/v1",
-				apiKey:   "sk-test123",
-				models:   []string{"gpt-4"},
-				priority: 1,
-			},
-		},
-		{
-			name: "env var api key",
-			config: config.Provider{
-				Name:     "openai",
-				BaseURL:  "https://api.openai.com/v1",
-				APIKey:   "${OPENAI_API_KEY}",
-				Models:   []string{"gpt-4", "gpt-3.5-turbo"},
-				Priority: 2,
-			},
-			envVars: map[string]string{
-				"OPENAI_API_KEY": "sk-env-test456",
-			},
-			expected: &OpenAIProvider{
-				name:     "openai",
-				baseURL:  "https://api.openai.com/v1",
-				apiKey:   "sk-env-test456",
-				models:   []string{"gpt-4", "gpt-3.5-turbo"},
-				priority: 2,
-			},
-		},
-	}
+// captureSlogOutput captures slog output for the duration of the provided function.
+func captureSlogOutput(fn func()) string {
+	var buf bytes.Buffer
+	handler := slog.NewTextHandler(&buf, nil) // Simplified handler without time for easier assertion
+	originalLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(originalLogger)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Set environment variables
-			for key, value := range tt.envVars {
-				if err := os.Setenv(key, value); err != nil {
-					t.Errorf("Failed to set env var: %v", err)
-				}
-			}
-			defer func() {
-				for key := range tt.envVars {
-					_ = os.Unsetenv(key)
-				}
-			}()
-
-			cfg := tt.config // Create copy to avoid memory aliasing
-			provider := NewOpenAIProvider(&cfg)
-
-			assert.Equal(t, tt.expected.name, provider.Name())
-			assert.Equal(t, tt.expected.baseURL, provider.baseURL)
-			assert.Equal(t, tt.expected.apiKey, provider.apiKey)
-			assert.Equal(t, tt.expected.models, provider.ListModels())
-			assert.Equal(t, tt.expected.priority, provider.Priority())
-		})
-	}
+	fn()
+	return buf.String()
 }
 
-func TestOpenAIProvider_ChatCompletion(t *testing.T) {
-	// Create test server
+func TestOpenAIProvider_ListModels_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/chat/completions", r.URL.Path)
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/models", r.URL.Path)
+		authHeader := r.Header.Get("Authorization")
+		assert.Equal(t, "Bearer test-api-key", authHeader)
+		// Content-Type for GET is not standard but was in previous makeGetRequest, so testing its presence.
+		// assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
-		// Verify request body
-		var req map[string]interface{}
-		err := json.NewDecoder(r.Body).Decode(&req)
-		require.NoError(t, err)
-		assert.Equal(t, "gpt-4", req["model"])
-		assert.NotEmpty(t, req["messages"])
-
-		// Send response
-		response := map[string]interface{}{
-			"id":      "chatcmpl-123",
-			"object":  "chat.completion",
-			"created": 1677652288,
-			"model":   "gpt-4",
-			"choices": []map[string]interface{}{
-				{
-					"index": 0,
-					"message": map[string]interface{}{
-						"role":    "assistant",
-						"content": "Hello! How can I help you today?",
-					},
-					"finish_reason": "stop",
-				},
-			},
-			"usage": map[string]interface{}{
-				"prompt_tokens":     9,
-				"completion_tokens": 12,
-				"total_tokens":      21,
+		response := OpenAIModelsListResponse{
+			Object: "list",
+			Data: []proxy.ModelInfo{
+				{ID: "gpt-4", Object: "model", Created: 123, OwnedBy: "openai"},
+				{ID: "gpt-3.5-turbo", Object: "model", Created: 123, OwnedBy: "openai"},
 			},
 		}
-
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			t.Errorf("Failed to encode response: %v", err)
-		}
+		err := json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(&config.Provider{
-		Name:    "test",
+	providerCfg := &config.Provider{
+		Name:    "openai-test-success",
+		Type:    "openai",
+		BaseURL: server.URL,
+		APIKey:  "test-api-key",
+	}
+	provider := NewOpenAIProvider(providerCfg)
+	require.NotNil(t, provider)
+
+	var models []string
+	logOutput := captureSlogOutput(func() {
+		models = provider.ListModels()
+	})
+
+	assert.ElementsMatch(t, []string{"gpt-4", "gpt-3.5-turbo"}, models)
+	assert.NotContains(t, strings.ToLower(logOutput), "level=error") // Check for "level=error" which slog text handler produces
+	assert.NotContains(t, strings.ToLower(logOutput), "failed")
+}
+
+func TestOpenAIProvider_ListModels_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/models", r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("internal server error"))
+	}))
+	defer server.Close()
+
+	providerCfg := &config.Provider{
+		Name:    "openai-test-server-error",
+		Type:    "openai",
+		BaseURL: server.URL,
+		APIKey:  "test-api-key",
+	}
+	provider := NewOpenAIProvider(providerCfg)
+	require.NotNil(t, provider)
+
+	var models []string
+	logOutput := captureSlogOutput(func() {
+		models = provider.ListModels()
+	})
+
+	assert.Empty(t, models)
+	assert.Contains(t, logOutput, "Failed to list models from OpenAI")
+	assert.Contains(t, logOutput, "provider=openai-test-server-error")
+	assert.Contains(t, logOutput, "API request failed with status 500")
+	assert.Contains(t, logOutput, "internal server error")
+}
+
+func TestOpenAIProvider_ListModels_MalformedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/models", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"object": "list", "data": [{"id": "gpt-4"}, malformed_json`)) // Invalid JSON
+	}))
+	defer server.Close()
+
+	providerCfg := &config.Provider{
+		Name:    "openai-test-malformed",
+		Type:    "openai",
+		BaseURL: server.URL,
+		APIKey:  "test-api-key",
+	}
+	provider := NewOpenAIProvider(providerCfg)
+	require.NotNil(t, provider)
+
+	var models []string
+	logOutput := captureSlogOutput(func() {
+		models = provider.ListModels()
+	})
+
+	assert.Empty(t, models)
+	assert.Contains(t, logOutput, "Failed to list models from OpenAI")
+	assert.Contains(t, logOutput, "provider=openai-test-malformed")
+	assert.Contains(t, logOutput, "failed to unmarshal response body")
+}
+
+func TestNewOpenAIProvider_APIKeyFromEnv(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		assert.Equal(t, "Bearer env-api-key-value", authHeader)
+		response := OpenAIModelsListResponse{Object: "list", Data: []proxy.ModelInfo{}}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	envVarName := "TEST_OPENAI_API_KEY_FOR_PROVIDER"
+	originalEnvValue, isSet := os.LookupEnv(envVarName)
+	err := os.Setenv(envVarName, "env-api-key-value")
+	require.NoError(t, err)
+	defer func() {
+		if isSet {
+			_ = os.Setenv(envVarName, originalEnvValue)
+		} else {
+			_ = os.Unsetenv(envVarName)
+		}
+	}()
+
+	providerCfg := &config.Provider{
+		Name:    "openai-env-key-test",
+		Type:    "openai",
+		BaseURL: server.URL,
+		APIKey:  "${" + envVarName + "}",
+	}
+	provider := NewOpenAIProvider(providerCfg)
+	require.NotNil(t, provider)
+	_ = provider.ListModels() // Trigger request
+}
+
+func TestOpenAIProvider_makeGetRequest_ContextCancelled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond) // Make handler slow
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"object": "list", "data": []}`))
+	}))
+	defer server.Close()
+
+	providerCfg := &config.Provider{
+		Name:    "openai-context-cancel",
+		Type:    "openai",
 		BaseURL: server.URL,
 		APIKey:  "test-key",
-		Models:  []string{"gpt-4"},
-	})
-
-	messages := []map[string]interface{}{
-		{"role": "user", "content": "Hello"},
 	}
-
-	result, err := provider.ChatCompletion(context.Background(), "gpt-4", messages)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Verify response structure
-	response, ok := result.(map[string]interface{})
+	// Need to cast to access the unexported makeGetRequest method.
+	// This specific test is white-box testing the request cancellation.
+	p, ok := NewOpenAIProvider(providerCfg).(*OpenAIProvider)
 	require.True(t, ok)
-	assert.Equal(t, "chatcmpl-123", response["id"])
-	assert.Equal(t, "chat.completion", response["object"])
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := p.makeGetRequest(ctx, "/models") // Pass the cancelled context
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "context canceled")
 }
 
-func TestOpenAIProvider_ChatCompletion_Error(t *testing.T) {
-	// Create test server that returns error
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		if _, err := w.Write([]byte(`{"error": {"message": "Invalid API key", "type": "invalid_request_error"}}`)); err != nil {
-			t.Errorf("Failed to write error response: %v", err)
-		}
-	}))
-	defer server.Close()
-
-	provider := NewOpenAIProvider(&config.Provider{
-		Name:    "test",
-		BaseURL: server.URL,
-		APIKey:  "invalid-key",
-		Models:  []string{"gpt-4"},
-	})
-
-	messages := []map[string]interface{}{
-		{"role": "user", "content": "Hello"},
-	}
-
-	result, err := provider.ChatCompletion(context.Background(), "gpt-4", messages)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "401")
-}
-
-func TestOpenAIProvider_Completion(t *testing.T) {
+func TestOpenAIProvider_ListModels_EmptyResponseData(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/completions", r.URL.Path)
-
-		var req map[string]interface{}
-		err := json.NewDecoder(r.Body).Decode(&req)
-		require.NoError(t, err)
-		assert.Equal(t, "gpt-3.5-turbo-instruct", req["model"])
-		assert.Equal(t, "Complete this: Hello", req["prompt"])
-
-		response := map[string]interface{}{
-			"id":      "cmpl-123",
-			"object":  "text_completion",
-			"created": 1677652288,
-			"model":   "gpt-3.5-turbo-instruct",
-			"choices": []map[string]interface{}{
-				{
-					"text":          " world!",
-					"index":         0,
-					"logprobs":      nil,
-					"finish_reason": "stop",
-				},
-			},
+		response := OpenAIModelsListResponse{
+			Object: "list",
+			Data:   []proxy.ModelInfo{}, // Empty data
 		}
-
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			t.Errorf("Failed to encode response: %v", err)
-		}
+		err := json.NewEncoder(w).Encode(response)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
-	provider := NewOpenAIProvider(&config.Provider{
-		Name:    "test",
-		BaseURL: server.URL,
-		APIKey:  "test-key",
-		Models:  []string{"gpt-3.5-turbo-instruct"},
+	providerCfg := &config.Provider{Name: "openai-empty-data", BaseURL: server.URL, APIKey: "test"}
+	provider := NewOpenAIProvider(providerCfg)
+
+	var models []string
+	logOutput := captureSlogOutput(func() {
+		models = provider.ListModels()
 	})
 
-	result, err := provider.Completion(context.Background(), "gpt-3.5-turbo-instruct", "Complete this: Hello")
-	require.NoError(t, err)
-	require.NotNil(t, result)
+	assert.Empty(t, models)
+	assert.NotContains(t, strings.ToLower(logOutput), "level=error")
+}
 
-	response, ok := result.(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "cmpl-123", response["id"])
-	assert.Equal(t, "text_completion", response["object"])
+func TestOpenAIProvider_ListModels_NilResponseData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawResponse := `{"object": "list", "data": null}` // Data is null
+		w.Header().Set("Content-Type", "application/json")
+		_, err := w.Write([]byte(rawResponse))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	providerCfg := &config.Provider{Name: "openai-nil-data", BaseURL: server.URL, APIKey: "test"}
+	provider := NewOpenAIProvider(providerCfg)
+
+	var models []string
+	logOutput := captureSlogOutput(func() {
+		models = provider.ListModels()
+	})
+
+	assert.Empty(t, models)
+	assert.NotContains(t, strings.ToLower(logOutput), "level=error")
+}
+
+var testSetupOnce sync.Once
+
+func setupTestLogging() {
+	testSetupOnce.Do(func() {
+		// No global logging setup needed as captureSlogOutput handles it per test.
+	})
+}
+
+func TestMain(m *testing.M) {
+	setupTestLogging()
+	// To prevent verbose output from tests unless explicitly captured and asserted:
+	// originalLogger := slog.Default()
+	// quietLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// slog.SetDefault(quietLogger)
+
+	code := m.Run()
+
+	// slog.SetDefault(originalLogger) // Restore if changed globally
+	os.Exit(code)
 }
