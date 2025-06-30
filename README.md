@@ -1,5 +1,7 @@
 # Modelplex
 
+**Status**: Pre-alpha, still sketching/prototyping functionality, not usable yet.
+
 Decouple models and MCP integrations from the agent.
 
 **With modelplex, we can run AI agents in complete network isolation.** No outbound connections. Full AI capabilities.
