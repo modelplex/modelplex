@@ -14,8 +14,17 @@ import (
 	"os"
 	"strings"
 
+	"log/slog"
+
 	"github.com/modelplex/modelplex/internal/config"
+	"github.com/modelplex/modelplex/internal/proxy"
 )
+
+// OpenAIModelsListResponse defines the structure for the OpenAI API's model list response.
+type OpenAIModelsListResponse struct {
+	Object string           `json:"object"`
+	Data   []proxy.ModelInfo `json:"data"`
+}
 
 // OpenAIProvider implements the Provider interface for OpenAI API.
 type OpenAIProvider struct {
@@ -57,7 +66,49 @@ func (p *OpenAIProvider) Priority() int {
 
 // ListModels returns the list of available models for this provider.
 func (p *OpenAIProvider) ListModels() []string {
-	return p.models
+	response, err := p.makeGetRequest(context.Background(), "/models")
+	if err != nil {
+		slog.Error("Failed to list models from OpenAI", "error", err, "provider", p.name)
+		return []string{} // Return empty list on error
+	}
+
+	var models []string
+	for _, modelInfo := range response.Data {
+		models = append(models, modelInfo.ID)
+	}
+	return models
+}
+
+func (p *OpenAIProvider) makeGetRequest(ctx context.Context, endpoint string) (*OpenAIModelsListResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var openAIModelsListResponse OpenAIModelsListResponse
+	if err := json.Unmarshal(body, &openAIModelsListResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+	}
+
+	return &openAIModelsListResponse, nil
 }
 
 // ChatCompletion performs a chat completion request.

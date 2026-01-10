@@ -85,17 +85,37 @@ func (p *OpenAIProxy) HandleCompletions(w http.ResponseWriter, r *http.Request) 
 }
 
 // HandleModels handles model listing requests.
-func (p *OpenAIProxy) HandleModels(w http.ResponseWriter, _ *http.Request) {
-	models := p.mux.ListModels()
+func (p *OpenAIProxy) HandleModels(w http.ResponseWriter, r *http.Request) {
+	allProviders := p.mux.GetAllProviders()
+	allModelsMap := make(map[string]ModelInfo)
 
-	data := make([]ModelInfo, len(models))
-	for i, model := range models {
-		data[i] = ModelInfo{
-			ID:      model,
-			Object:  "model",
-			Created: defaultModelCreated,
-			OwnedBy: "modelplex",
+	for _, provider := range allProviders {
+		// Assuming provider.ListModels() does not take context based on prior subtasks.
+		// If it was updated to take r.Context(), it should be passed here.
+		modelIDs := provider.ListModels()
+
+		if len(modelIDs) == 0 {
+			// Provider might have logged its own error, or it genuinely has no models.
+			// Optionally, log here if a provider returns an empty list when it's not expected.
+			slog.Debug("Provider returned no models", "provider_name", provider.Name())
 		}
+
+		for _, modelID := range modelIDs {
+			if _, exists := allModelsMap[modelID]; !exists {
+				allModelsMap[modelID] = ModelInfo{
+					ID:      modelID,
+					Object:  "model", // Standard OpenAI API value
+					Created: defaultModelCreated,
+					OwnedBy: provider.Name(), // Name of the provider
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	data := make([]ModelInfo, 0, len(allModelsMap))
+	for _, modelInfo := range allModelsMap {
+		data = append(data, modelInfo)
 	}
 
 	response := ModelsResponse{

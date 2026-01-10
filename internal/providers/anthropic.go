@@ -17,8 +17,26 @@ import (
 	"os"
 	"strings"
 
+	"log/slog"
+
 	"github.com/modelplex/modelplex/internal/config"
 )
+
+// AnthropicModelInfo defines the structure for a single model in Anthropic's API response.
+type AnthropicModelInfo struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   string `json:"created_at"`
+	Type        string `json:"type"`
+}
+
+// AnthropicModelsListResponse defines the structure for the Anthropic API's model list response.
+type AnthropicModelsListResponse struct {
+	Data    []AnthropicModelInfo `json:"data"`
+	FirstID *string              `json:"first_id"`
+	HasMore bool                 `json:"has_more"`
+	LastID  *string              `json:"last_id"`
+}
 
 const (
 	// Default max tokens for Anthropic API
@@ -65,7 +83,51 @@ func (p *AnthropicProvider) Priority() int {
 
 // ListModels returns the list of available models for this provider.
 func (p *AnthropicProvider) ListModels() []string {
-	return p.models
+	// Use context.Background() for now, or allow passing a context if preferred
+	response, err := p.makeGetRequest(context.Background(), "/v1/models")
+	if err != nil {
+		slog.Error("Failed to list models from Anthropic", "error", err, "provider", p.name)
+		return []string{} // Return empty list on error
+	}
+
+	var models []string
+	for _, modelInfo := range response.Data {
+		models = append(models, modelInfo.ID)
+	}
+	return models
+}
+
+func (p *AnthropicProvider) makeGetRequest(ctx context.Context, endpoint string) (*AnthropicModelsListResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("x-api-key", p.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var anthropicModelsListResponse AnthropicModelsListResponse
+	if err := json.Unmarshal(body, &anthropicModelsListResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+	}
+
+	return &anthropicModelsListResponse, nil
 }
 
 // ChatCompletion performs a chat completion request with Anthropic-specific formatting.
